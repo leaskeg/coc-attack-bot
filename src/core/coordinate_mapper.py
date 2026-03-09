@@ -1,7 +1,3 @@
-"""
-Coordinate Mapper - Records and manages button coordinates for the COC bot
-"""
-
 import json
 import os
 import time
@@ -9,15 +5,17 @@ import pyautogui
 import keyboard
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime
+from ..utils.coordinate_preview import SimpleCoordinateDisplay
+from ..utils.screen_utils import get_virtual_screen_size, is_coordinate_on_screen
 
 class CoordinateMapper:
-    """Records and manages button coordinates for automated clicking"""
     
     def __init__(self):
         self.coordinates_dir = "coordinates"
         self.coordinates_file = os.path.join(self.coordinates_dir, "button_coordinates.json")
         self.coordinates = {}
         self.is_mapping = False
+        self.preview_display = SimpleCoordinateDisplay()
         
         # Create coordinates directory
         os.makedirs(self.coordinates_dir, exist_ok=True)
@@ -25,12 +23,7 @@ class CoordinateMapper:
         # Load existing coordinates
         self.load_coordinates()
         
-        print("Coordinate Mapper initialized")
-        print("Mapping Controls:")
-        print("  F1 - Start/Stop coordinate mapping")
-        print("  F2 - Record current mouse position")
-        print("  F3 - Save coordinates")
-        print("  ESC - Cancel mapping")
+        print("Mapper ready")
     
     def load_coordinates(self) -> None:
         """Load coordinates from file"""
@@ -63,8 +56,8 @@ class CoordinateMapper:
         except Exception as e:
             print(f"Error saving coordinates: {e}")
     
-    def start_mapping(self) -> None:
-        """Start interactive coordinate mapping"""
+    def start_mapping(self, required_buttons: Dict[str, str] = None) -> None:
+        """Start interactive coordinate mapping with enhanced UX"""
         if self.is_mapping:
             print("Already in mapping mode")
             return
@@ -72,15 +65,25 @@ class CoordinateMapper:
         self.is_mapping = True
         current_session = {}
         
-        print("\n=== COORDINATE MAPPING MODE ===")
-        print("Instructions:")
-        print("1. Move mouse to the button you want to map")
-        print("2. Press F2 to record the position")
-        print("3. Enter a name for the button")
-        print("4. Repeat for all buttons")
-        print("5. Press F3 to save all mappings")
-        print("6. Press ESC to cancel")
-        print("\nStarting in 3 seconds...")
+        print("\n" + "=" * 70)
+        print("                COORDINATE MAPPING MODE")
+        print("=" * 70)
+        
+        if required_buttons:
+            print("\n📋 REQUIRED BUTTONS TO MAP:")
+            for btn_name, description in required_buttons.items():
+                status = "✓" if btn_name in self.coordinates else "✗"
+                print(f"  {status} {btn_name:20} - {description}")
+        
+        print("\n📌 INSTRUCTIONS:")
+        print("  1. Move mouse to a button you want to map")
+        print("  2. Press F2 to record the position")
+        print("  3. Enter the button name (or exact name from list above)")
+        print("  4. Repeat for all buttons")
+        print("  5. Press F3 to save all mappings at once")
+        print("  6. Press ESC or F1 to exit")
+        print("\n" + "=" * 70)
+        print("Starting in 3 seconds...")
         time.sleep(3)
         
         try:
@@ -90,53 +93,95 @@ class CoordinateMapper:
                     break
                 
                 if keyboard.is_pressed('f2'):
-                    # Record current mouse position
                     x, y = pyautogui.position()
-                    button_name = input(f"\nMouse at ({x}, {y}). Enter button name: ").strip()
+                    
+                    print(f"\n📍 Mouse Position: ({x}, {y})")
+                    
+                    if self.coordinates:
+                        print("\n📌 NEARBY MAPPED COORDINATES (within 200px):")
+                        found = False
+                        for name, coord in sorted(self.coordinates.items()):
+                            distance = ((x - coord['x']) ** 2 + (y - coord['y']) ** 2) ** 0.5
+                            if distance < 200:
+                                found = True
+                                bar_length = int((200 - distance) / 200 * 15)
+                                bar = "█" * bar_length + "░" * (15 - bar_length)
+                                print(f"    {name:20} ({coord['x']:4d}, {coord['y']:4d}) [{bar}] {distance:6.0f}px")
+                        if not found:
+                            print("    (No mapped coordinates nearby)")
+                    
+                    if required_buttons:
+                        print("\nSuggested names: " + ", ".join(required_buttons.keys()))
+                    
+                    button_name = input("\nEnter button name: ").strip()
                     
                     if button_name:
                         current_session[button_name] = {"x": x, "y": y}
-                        print(f"Recorded '{button_name}' at ({x}, {y})")
-                        print(f"Session mappings: {len(current_session)}")
+                        
+                        status = "NEW" if button_name not in self.coordinates else "UPDATED"
+                        print(f"✅ [{status}] '{button_name}' at ({x}, {y})")
+                        print(f"📊 Session: {len(current_session)} mappings | "
+                              f"Total: {len(self.coordinates) + len(current_session)} coordinates")
+                        
+                        if required_buttons and button_name in required_buttons:
+                            print(f"✓ '{button_name}' is a required button")
+                    else:
+                        print("❌ Button name cannot be empty")
                     
-                    # Wait for key release
                     while keyboard.is_pressed('f2'):
                         time.sleep(0.1)
                 
                 if keyboard.is_pressed('f3'):
-                    # Save current session
                     if current_session:
                         self.coordinates.update(current_session)
                         self.save_coordinates()
-                        print(f"\nSaved {len(current_session)} new mappings")
+                        print(f"\n✅ Saved {len(current_session)} mappings")
                         current_session.clear()
+                        
+                        if required_buttons:
+                            mapped = [btn for btn in required_buttons.keys() if btn in self.coordinates]
+                            print(f"📊 Progress: {len(mapped)}/{len(required_buttons)} required buttons mapped")
                     else:
-                        print("\nNo mappings to save")
+                        print("\n⚠️  No mappings in session to save")
                     
-                    # Wait for key release
                     while keyboard.is_pressed('f3'):
                         time.sleep(0.1)
                 
                 if keyboard.is_pressed('f1'):
-                    # Toggle mapping mode
                     print("\nExiting mapping mode")
                     break
                 
                 time.sleep(0.1)
         
         except KeyboardInterrupt:
-            print("\nMapping interrupted")
+            print("\n\nMapping interrupted")
         
         finally:
             self.is_mapping = False
-            print("Coordinate mapping stopped")
+            print("\n" + "=" * 70)
             
-            # Save any remaining mappings
             if current_session:
                 response = input(f"Save {len(current_session)} unsaved mappings? (y/n): ").strip().lower()
                 if response == 'y':
                     self.coordinates.update(current_session)
                     self.save_coordinates()
+                    print(f"✅ Saved {len(current_session)} mappings")
+                else:
+                    print("⚠️  Unsaved mappings discarded")
+            
+            if required_buttons:
+                mapped = [btn for btn in required_buttons.keys() if btn in self.coordinates]
+                print(f"\n📊 FINAL PROGRESS: {len(mapped)}/{len(required_buttons)} required buttons")
+                
+                missing = [btn for btn in required_buttons.keys() if btn not in self.coordinates]
+                if missing:
+                    print("\n⚠️  Still missing:")
+                    for btn in missing:
+                        print(f"  - {btn}")
+                else:
+                    print("\n✅ ALL REQUIRED BUTTONS MAPPED!")
+            
+            print("=" * 70)
     
     def get_coordinates(self, button_name: Optional[str] = None) -> Dict:
         """Get coordinates for a specific button or all buttons"""
@@ -159,6 +204,51 @@ class CoordinateMapper:
             print(f"Coordinate '{name}' not found")
             return False
     
+    def edit_coordinate(self, name: str, x: Optional[int] = None, y: Optional[int] = None) -> bool:
+        """Edit an existing coordinate mapping"""
+        if name not in self.coordinates:
+            print(f"Coordinate '{name}' not found")
+            return False
+        
+        current_x = self.coordinates[name]['x']
+        current_y = self.coordinates[name]['y']
+        
+        # If coordinates provided, use them
+        if x is not None and y is not None:
+            self.coordinates[name] = {"x": x, "y": y}
+            print(f"Updated coordinate '{name}' from ({current_x}, {current_y}) to ({x}, {y})")
+            return True
+        
+        # Interactive edit mode
+        print(f"\nCurrent: '{name}' at ({current_x}, {current_y})")
+        print("Options:")
+        print("1. Use current mouse position")
+        print("2. Enter coordinates manually")
+        print("3. Cancel")
+        
+        choice = input("Choose option: ").strip()
+        
+        if choice == '1':
+            x, y = pyautogui.position()
+            self.coordinates[name] = {"x": x, "y": y}
+            print(f"Updated coordinate '{name}' to ({x}, {y})")
+            return True
+        
+        elif choice == '2':
+            try:
+                x = int(input("Enter X coordinate: ").strip())
+                y = int(input("Enter Y coordinate: ").strip())
+                self.coordinates[name] = {"x": x, "y": y}
+                print(f"Updated coordinate '{name}' to ({x}, {y})")
+                return True
+            except ValueError:
+                print("Invalid coordinates")
+                return False
+        
+        else:
+            print("Edit cancelled")
+            return False
+    
     def list_coordinates(self) -> None:
         """Print all mapped coordinates"""
         if not self.coordinates:
@@ -171,17 +261,18 @@ class CoordinateMapper:
         print(f"Total: {len(self.coordinates)} mappings")
     
     def validate_coordinates(self) -> Dict[str, bool]:
-        """Validate that all coordinates are within screen bounds"""
-        screen_width, screen_height = pyautogui.size()
+        """Validate that all coordinates are within virtual screen bounds (multi-monitor support)"""
+        min_x, min_y, max_x, max_y = get_virtual_screen_size()
         validation = {}
         
         for name, coords in self.coordinates.items():
             x, y = coords['x'], coords['y']
-            is_valid = 0 <= x < screen_width and 0 <= y < screen_height
+            is_valid = is_coordinate_on_screen(x, y)
             validation[name] = is_valid
             
             if not is_valid:
-                print(f"WARNING: Coordinate '{name}' ({x}, {y}) is outside screen bounds")
+                print(f"WARNING: Coordinate '{name}' ({x}, {y}) is outside virtual screen bounds "
+                      f"({min_x}, {min_y}) to ({max_x}, {max_y})")
         
         return validation
     

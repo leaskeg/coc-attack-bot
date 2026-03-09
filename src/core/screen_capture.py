@@ -1,29 +1,23 @@
-"""
-Screen Capture Module - Handles screen capture and game window detection
-"""
-
 import pyautogui
 import cv2
 import numpy as np
 import time
 import os
 from typing import Optional, Tuple, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import win32gui
 import win32con
 
 class ScreenCapture:
-    """Handles screen capture and game window detection"""
     
     def __init__(self):
         self.screenshot_dir = "screenshots"
-        self.game_window_title = "Clash of Clans"
+        self.game_window_title = "Game"
         self.game_window_bounds = None
+        self.template_cache = {}
         
-        # Create screenshots directory
         os.makedirs(self.screenshot_dir, exist_ok=True)
         
-        # Configure pyautogui
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
     
@@ -40,13 +34,11 @@ class ScreenCapture:
         win32gui.EnumWindows(enum_windows_callback, windows)
         
         if windows:
-            # Take the first match
             hwnd, title, rect = windows[0]
             x, y, right, bottom = rect
             width = right - x
             height = bottom - y
             self.game_window_bounds = (x, y, width, height)
-            print(f"Found game window: {title} at ({x}, {y}, {width}, {height})")
             return self.game_window_bounds
         
         print("Could not find COC game window. Make sure the game is running.")
@@ -89,33 +81,28 @@ class ScreenCapture:
         Find a template image on screen using template matching
         Returns the center coordinates of the match if found
         """
-        # Take screenshot
         if region:
             screenshot = pyautogui.screenshot(region=region)
         else:
             screenshot = pyautogui.screenshot()
         
-        # Convert to OpenCV format
         screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
         
-        # Load template
-        if not os.path.exists(template_path):
-            print(f"Template not found: {template_path}")
-            return None
-            
-        template = cv2.imread(template_path, cv2.IMREAD_COLOR)
+        if template_path not in self.template_cache:
+            if not os.path.exists(template_path):
+                print(f"Template not found: {template_path}")
+                return None
+            self.template_cache[template_path] = cv2.imread(template_path, cv2.IMREAD_COLOR)
         
-        # Perform template matching
+        template = self.template_cache[template_path]
         result = cv2.matchTemplate(screenshot_cv, template, cv2.TM_CCOEFF_NORMED)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
         
         if max_val >= threshold:
-            # Calculate center coordinates
             template_height, template_width = template.shape[:2]
             center_x = max_loc[0] + template_width // 2
             center_y = max_loc[1] + template_height // 2
             
-            # Adjust for region offset if specified
             if region:
                 center_x += region[0]
                 center_y += region[1]
@@ -142,8 +129,8 @@ class ScreenCapture:
     
     def get_pixel_color(self, x: int, y: int) -> Tuple[int, int, int]:
         """Get the RGB color of a pixel at specified coordinates"""
-        screenshot = pyautogui.screenshot()
-        pixel = screenshot.getpixel((x, y))
+        screenshot = pyautogui.screenshot(region=(x, y, 1, 1))
+        pixel = screenshot.getpixel((0, 0))
         return pixel
     
     def save_template(self, region: Tuple[int, int, int, int], name: str) -> str:
@@ -156,4 +143,31 @@ class ScreenCapture:
         screenshot.save(filepath)
         
         print(f"Template saved: {filepath}")
-        return filepath 
+        return filepath
+    
+    def cleanup_old_screenshots(self, max_age_hours: int = 24) -> int:
+        """Delete screenshots older than max_age_hours. Returns count of deleted files."""
+        if not os.path.exists(self.screenshot_dir):
+            return 0
+        
+        cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+        deleted_count = 0
+        
+        try:
+            for filename in os.listdir(self.screenshot_dir):
+                if not filename.endswith('.png'):
+                    continue
+                
+                filepath = os.path.join(self.screenshot_dir, filename)
+                file_time = datetime.fromtimestamp(os.path.getmtime(filepath))
+                
+                if file_time < cutoff_time:
+                    os.remove(filepath)
+                    deleted_count += 1
+            
+            if deleted_count > 0:
+                print(f"Cleaned up {deleted_count} screenshots older than {max_age_hours} hours")
+        except Exception as e:
+            print(f"Error cleaning up screenshots: {e}")
+        
+        return deleted_count 

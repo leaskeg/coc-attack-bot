@@ -1,29 +1,96 @@
-"""
-Attack Player - Plays back recorded attack sessions
-"""
-
 import json
 import time
+import random
+import base64
 import pyautogui
 import keyboard
 import threading
-from typing import Dict, List, Optional
+import cv2
+import numpy as np
+from io import BytesIO
+from PIL import Image
+from typing import Dict, List, Optional, Tuple
 from .attack_recorder import AttackRecorder
+from .screen_capture import ScreenCapture
+from ..utils.config import Config
+from ..utils.screen_utils import is_coordinate_on_screen, get_virtual_screen_size
 
 class AttackPlayer:
-    """Plays back recorded attack sessions"""
+    
+    def _add_random_delay(self, base_delay: float, variance: float = 0.15) -> float:
+        """Add randomness to delay (±variance %)"""
+        factor = 1 + random.uniform(-variance, variance)
+        return base_delay * factor
+    
+    def _add_coordinate_variance(self, x: int, y: int, variance_pixels: int = 5) -> Tuple[int, int]:
+        """Add randomness to click coordinates (±variance pixels)"""
+        offset_x = random.randint(-variance_pixels, variance_pixels)
+        offset_y = random.randint(-variance_pixels, variance_pixels)
+        return (x + offset_x, y + offset_y)
+    
+    def _find_troop_in_bar(self, icon_b64: str, confidence: float = 0.7) -> Optional[Tuple[int, int]]:
+        """Use template matching to find a troop icon's current position in the troop bar"""
+        try:
+            icon_bytes = base64.b64decode(icon_b64)
+            template_img = Image.open(BytesIO(icon_bytes))
+            template = cv2.cvtColor(np.array(template_img), cv2.COLOR_RGB2BGR)
+
+            screen_w, screen_h = pyautogui.size()
+            bar_top = int(screen_h * 0.83)
+            bar_region = (0, bar_top, screen_w, screen_h - bar_top)
+            bar_screenshot = pyautogui.screenshot(region=bar_region)
+            haystack = cv2.cvtColor(np.array(bar_screenshot), cv2.COLOR_RGB2BGR)
+
+            result = cv2.matchTemplate(haystack, template, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+            if max_val >= confidence:
+                found_x = max_loc[0] + template.shape[1] // 2
+                found_y = bar_top + max_loc[1] + template.shape[0] // 2
+                return (found_x, found_y)
+
+            return None
+        except Exception as e:
+            print(f"Template matching failed: {e}")
+            return None
+
+    def _adjust_coordinates_for_window(self, x: int, y: int, recorded_bounds: Optional[Tuple] = None) -> Tuple[int, int]:
+        """Adjust coordinates based on game window position change"""
+        if not recorded_bounds:
+            return (x, y)
+        
+        recorded_x, recorded_y, recorded_w, recorded_h = recorded_bounds
+        
+        current_bounds = self.screen_capture.find_game_window()
+        if not current_bounds:
+            return (x, y)
+        
+        current_x, current_y, current_w, current_h = current_bounds
+        
+        x_offset = current_x - recorded_x
+        y_offset = current_y - recorded_y
+        
+        adjusted_x = x + x_offset
+        adjusted_y = y + y_offset
+        
+        return (adjusted_x, adjusted_y)
     
     def __init__(self):
         self.attack_recorder = AttackRecorder()
+        self.screen_capture = ScreenCapture()
+        self.config = Config()
         self.is_playing = False
         self.current_playback = None
         self.playback_thread = None
         self.playback_speed = 1.0
+        self.enable_click_variation = self.config.get("automation.enable_click_variation", True)
+        self.click_variance_pixels = self.config.get("automation.click_variance_pixels", 5)
         
-        print("Attack Player initialized")
-        print("Playback Controls:")
-        print("  F8 - Pause/Resume playback")
-        print("  F9 - Stop playback")
+        print("Player initialized")
+        print(f"Variation: {'enabled' if self.enable_click_variation else 'disabled'} (±{self.click_variance_pixels} pixels)")
+        print("Controls:")
+        print("  F8 - Pause/Resume")
+        print("  F9 - Stop")
         print("  ESC - Emergency stop")
     
     def play_attack(self, session_name: str, speed: float = 1.0) -> bool:
@@ -51,10 +118,11 @@ class AttackPlayer:
         
         time.sleep(3)
         
-        # Start playback thread
+        recorded_bounds = recording.get('game_window_bounds')
+        
         self.playback_thread = threading.Thread(
             target=self._playback_loop, 
-            args=(recording.get('actions', []),)
+            args=(recording.get('actions', []), recorded_bounds)
         )
         self.playback_thread.daemon = True
         self.playback_thread.start()
@@ -73,17 +141,17 @@ class AttackPlayer:
         if self.playback_thread:
             self.playback_thread.join(timeout=2)
     
-    def _playback_loop(self, actions: List[Dict]) -> None:
+    def _playback_loop(self, actions: List[Dict], recorded_bounds: Optional[Tuple] = None) -> None:
         """Main playback loop"""
         try:
             last_timestamp = 0
             paused = False
+            log_interval = max(1, len(actions) // 10)
             
             for i, action in enumerate(actions):
                 if not self.is_playing:
                     break
                 
-                # Check for control keys
                 if keyboard.is_pressed('esc'):
                     print("\nEmergency stop activated")
                     break
@@ -97,11 +165,9 @@ class AttackPlayer:
                     status = "paused" if paused else "resumed"
                     print(f"\nPlayback {status}")
                     
-                    # Wait for key release
                     while keyboard.is_pressed('f8'):
                         time.sleep(0.1)
                 
-                # Handle pause
                 while paused and self.is_playing:
                     time.sleep(0.1)
                     if keyboard.is_pressed('f8'):
@@ -113,20 +179,19 @@ class AttackPlayer:
                 if not self.is_playing:
                     break
                 
-                # Calculate delay based on timestamps
                 current_timestamp = action.get('timestamp', 0)
                 if i > 0:
                     delay = (current_timestamp - last_timestamp) / self.playback_speed
                     if delay > 0:
-                        time.sleep(delay)
+                        randomized_delay = self._add_random_delay(delay, variance=0.2)
+                        time.sleep(randomized_delay)
                 
-                # Execute the action
-                self._execute_action(action)
+                self._execute_action(action, recorded_bounds, action_index=i + 1)
                 last_timestamp = current_timestamp
                 
-                # Progress indicator
-                progress = (i + 1) / len(actions) * 100
-                print(f"\rProgress: {progress:.1f}% ({i + 1}/{len(actions)})", end='', flush=True)
+                if (i + 1) % log_interval == 0 or i == len(actions) - 1:
+                    progress = (i + 1) / len(actions) * 100
+                    print(f"--- Progress: {progress:.1f}% ({i + 1}/{len(actions)}) ---")
         
         except Exception as e:
             print(f"\nPlayback error: {e}")
@@ -135,40 +200,52 @@ class AttackPlayer:
             self.is_playing = False
             print(f"\nPlayback completed")
     
-    def _execute_action(self, action: Dict) -> None:
+    def _execute_action(self, action: Dict, recorded_bounds: Optional[Tuple] = None, action_index: int = -1) -> None:
         """Execute a single action"""
         action_type = action.get('type', '')
-        x = action.get('x', 0)
-        y = action.get('y', 0)
+        orig_x = action.get('x', 0)
+        orig_y = action.get('y', 0)
+        timestamp = action.get('timestamp', 0)
+        
+        x, y = self._adjust_coordinates_for_window(orig_x, orig_y, recorded_bounds)
+        
+        label = f"[#{action_index}]" if action_index >= 0 else ""
         
         try:
             if action_type == 'click':
-                pyautogui.click(x, y)
-                print(f" - Click at ({x}, {y})")
-            
+                if action.get('troop_bar_click') and action.get('troop_icon'):
+                    matched = self._find_troop_in_bar(action['troop_icon'])
+                    if matched:
+                        x, y = matched
+                        print(f"  CLICK {label} [TROOP MATCHED] t={timestamp:.2f}s  matched=({x}, {y})")
+                    else:
+                        print(f"  CLICK {label} [TROOP FALLBACK] t={timestamp:.2f}s  using recorded=({x}, {y})")
+
+                if self.enable_click_variation:
+                    final_x, final_y = self._add_coordinate_variance(x, y, self.click_variance_pixels)
+                    print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})")
+                    pyautogui.click(final_x, final_y)
+                else:
+                    print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  final=({x}, {y})")
+                    pyautogui.click(x, y)
             elif action_type == 'move':
-                pyautogui.moveTo(x, y)
-                print(f" - Move to ({x}, {y})")
-            
+                pass
             elif action_type == 'delay':
                 duration = action.get('duration', 1.0) / self.playback_speed
-                time.sleep(duration)
-                print(f" - Delay {duration:.1f}s")
-            
+                randomized_duration = self._add_random_delay(duration, variance=0.15)
+                print(f"  DELAY {label} t={timestamp:.2f}s  duration={randomized_duration:.2f}s")
+                time.sleep(randomized_duration)
             elif action_type == 'drag':
                 start_x = action.get('start_x', x)
                 start_y = action.get('start_y', y)
-                pyautogui.drag(x - start_x, y - start_y, duration=0.5)
-                print(f" - Drag from ({start_x}, {start_y}) to ({x}, {y})")
-            
-            else:
-                print(f" - Unknown action: {action_type}")
+                print(f"  DRAG  {label} t={timestamp:.2f}s  from=({start_x}, {start_y})  to=({x}, {y})")
+                pyautogui.drag(x - start_x, y - start_y)
         
         except Exception as e:
-            print(f" - Error executing action {action_type}: {e}")
+            print(f"Error executing action {action_type} at ({x}, {y}): {e}")
     
     def validate_recording(self, session_name: str) -> Dict[str, any]:
-        """Validate a recording before playback"""
+        """Validate a recording before playback (supports multi-monitor)"""
         recording = self.attack_recorder.load_recording(session_name)
         if not recording:
             return {'valid': False, 'error': 'Recording not found'}
@@ -177,24 +254,25 @@ class AttackPlayer:
         if not actions:
             return {'valid': False, 'error': 'No actions in recording'}
         
-        # Check screen bounds
-        screen_width, screen_height = pyautogui.size()
+        # Check virtual screen bounds (multi-monitor support)
+        min_x, min_y, max_x, max_y = get_virtual_screen_size()
         out_of_bounds = []
         
         for i, action in enumerate(actions):
             x, y = action.get('x', 0), action.get('y', 0)
-            if not (0 <= x < screen_width and 0 <= y < screen_height):
+            if not is_coordinate_on_screen(x, y):
                 out_of_bounds.append((i, x, y))
         
         result = {
             'valid': len(out_of_bounds) == 0,
             'total_actions': len(actions),
             'duration': recording.get('duration', 0),
-            'out_of_bounds': out_of_bounds
+            'out_of_bounds': out_of_bounds,
+            'virtual_screen': f"({min_x}, {min_y}) to ({max_x}, {max_y})"
         }
         
         if out_of_bounds:
-            result['error'] = f"{len(out_of_bounds)} actions are out of screen bounds"
+            result['error'] = f"{len(out_of_bounds)} actions are out of virtual screen bounds"
         
         return result
     

@@ -1,7 +1,3 @@
-"""
-Bot Controller - Main logic controller for COC Attack Bot
-"""
-
 import time
 import json
 from typing import Dict, List, Optional, Tuple
@@ -12,16 +8,17 @@ from .core.attack_player import AttackPlayer
 from .core.auto_attacker import AutoAttacker
 from .core.ai_analyzer import AIAnalyzer
 from .utils.config import Config
+from .utils.config_validator import ConfigValidator
 from .utils.logger import Logger
 
 class BotController:
-    """Main controller for the COC Attack Bot"""
     
     def __init__(self):
         self.logger = Logger()
         self.config = Config()
         self.screen_capture = ScreenCapture()
         self.coordinate_mapper = CoordinateMapper()
+        self.config_validator = ConfigValidator(self.config, self.coordinate_mapper)
         self.attack_recorder = AttackRecorder()
         self.attack_player = AttackPlayer()
         self.ai_analyzer = AIAnalyzer(
@@ -34,60 +31,70 @@ class BotController:
             coordinate_mapper=self.coordinate_mapper, 
             logger=self.logger,
             ai_analyzer=self.ai_analyzer,
-            config=self.config  # Pass the single config instance
+            config=self.config
         )
         
         self.is_recording = False
         self.is_playing = False
+        self.cached_game_window = None
+        self.game_window_cache_time = 0
         
-        self.logger.info("Bot Controller initialized")
+        self.logger.info("Controller initialized")
+    
+    def get_cached_game_window(self, cache_duration: int = 5) -> Optional[Tuple[int, int, int, int]]:
+        """Get game window bounds with caching to reduce repeated window detection calls"""
+        import time
+        current_time = time.time()
+        
+        if self.cached_game_window and (current_time - self.game_window_cache_time) < cache_duration:
+            return self.cached_game_window
+        
+        bounds = self.screen_capture.find_game_window()
+        if bounds:
+            self.cached_game_window = bounds
+            self.game_window_cache_time = current_time
+        
+        return bounds
     
     def start_coordinate_mapping(self) -> None:
-        """Start the coordinate mapping mode"""
-        self.logger.info("Starting coordinate mapping mode")
-        self.coordinate_mapper.start_mapping()
+        self.logger.info("Starting coordinate mapping")
+        required_buttons = self.get_required_buttons()
+        self.coordinate_mapper.start_mapping(required_buttons)
     
     def start_attack_recording(self, session_name: str) -> None:
-        """Start recording an attack session"""
         if self.is_recording:
             self.logger.warning("Already recording a session")
             return
             
-        self.logger.info(f"Starting attack recording: {session_name}")
+        self.logger.info(f"Starting recording: {session_name}")
         self.is_recording = True
         self.attack_recorder.start_recording(session_name)
     
     def stop_attack_recording(self) -> None:
-        """Stop recording the current attack session"""
         if not self.is_recording:
             self.logger.warning("No recording session active")
             return
             
-        self.logger.info("Stopping attack recording")
+        self.logger.info("Stopping recording")
         self.is_recording = False
         self.attack_recorder.stop_recording()
     
     def play_attack(self, session_name: str) -> None:
-        """Play back a recorded attack session"""
         if self.is_playing:
-            self.logger.warning("Already playing an attack")
+            self.logger.warning("Already playing a session")
             return
             
-        self.logger.info(f"Playing attack session: {session_name}")
+        self.logger.info(f"Playing session: {session_name}")
         self.is_playing = True
         try:
             self.attack_player.play_attack(session_name)
         finally:
             self.is_playing = False
     
-    def start_auto_attack(self, attack_sessions: List[str], min_gold: int = 100000, min_elixir: int = 100000, 
-                          min_dark_elixir: int = 1000) -> None:
-        """Start automated continuous attacks"""
-        # Start automation
+    def start_auto_attack(self) -> None:
         self.auto_attacker.start_auto_attack()
     
     def stop_auto_attack(self) -> None:
-        """Stop automated attacks"""
         self.auto_attacker.stop_auto_attack()
     
     def get_auto_attack_stats(self) -> Dict:
@@ -118,8 +125,15 @@ class BotController:
         """Save button coordinates mapping"""
         self.coordinate_mapper.save_coordinates(name, coordinates)
     
+    def validate_auto_attack_config(self) -> Tuple[bool, List[str]]:
+        """Validate auto-attack configuration"""
+        return self.config_validator.validate_auto_attack_config()
+    
+    def get_validation_summary(self) -> Dict:
+        """Get validation summary"""
+        return self.config_validator.get_validation_summary()
+    
     def detect_game_window(self) -> Optional[Tuple[int, int, int, int]]:
-        """Detect and return COC game window bounds"""
         return self.screen_capture.find_game_window()
     
     def take_screenshot(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
@@ -127,8 +141,7 @@ class BotController:
         return self.screen_capture.capture_screen(region)
     
     def shutdown(self) -> None:
-        """Shutdown the bot controller"""
-        self.logger.info("Shutting down Bot Controller")
+        self.logger.info("Shutting down")
         if self.is_recording:
             self.stop_attack_recording()
         if self.is_playing:

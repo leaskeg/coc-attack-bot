@@ -1,20 +1,21 @@
-"""
-Attack Recorder - Records user attack sessions for later playback
-"""
-
 import json
 import os
 import time
+import base64
 import pyautogui
 import keyboard
 import threading
+from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+from .screen_capture import ScreenCapture
+from ..utils.logger import Logger
+import win32gui
+import win32con
 
 class AttackRecorder:
-    """Records attack sessions including mouse movements, clicks, and timing"""
     
-    def __init__(self, auto_detect_clicks: bool = True):
+    def __init__(self, auto_detect_clicks: bool = True, logger: Optional[Logger] = None):
         self.recordings_dir = "recordings"
         self.current_recording = []
         self.recording_thread = None
@@ -23,20 +24,17 @@ class AttackRecorder:
         self.session_name = None
         self.auto_detect_clicks = auto_detect_clicks
         self._last_click_time = 0
+        self.game_window_bounds = None
+        self.screen_capture = ScreenCapture()
+        self.logger = logger or Logger()
         
-        # Create recordings directory
         os.makedirs(self.recordings_dir, exist_ok=True)
         
-        print("Attack Recorder initialized")
-        print("Recording Controls:")
-        print("  F5 - Start/Stop recording")
-        print("  F6 - Manual click recording (backup method)")
-        print("  F7 - Add delay marker")
-        print("  ESC - Cancel recording")
+        self.logger.info("Recorder ready")
         if self.auto_detect_clicks:
-            print("✅ Auto-click detection is ENABLED - clicks will be recorded automatically")
+            self.logger.info("Auto-detection: ON")
         else:
-            print("⚠️ Auto-click detection is DISABLED (use F6 for manual recording)")
+            self.logger.info("Auto-detection: OFF")
     
     def start_recording(self, session_name: str) -> None:
         """Start recording an attack session"""
@@ -48,6 +46,13 @@ class AttackRecorder:
         self.current_recording = []
         self.is_recording = True
         self.start_time = time.time()
+        self._last_click_time = 0
+        self._fallback_warned = False
+        
+        self.game_window_bounds = self.screen_capture.find_game_window()
+        if self.game_window_bounds:
+            x, y, w, h = self.game_window_bounds
+            print(f"Recording window bounds: ({x}, {y}, {w}, {h}) for coordinate adjustment")
         
         print(f"\n=== RECORDING ATTACK SESSION: {session_name} ===")
         print("Instructions:")
@@ -122,17 +127,19 @@ class AttackRecorder:
                         time.sleep(0.1)
                 
                 if keyboard.is_pressed('f7'):
-                    # Add delay marker
-                    delay = float(input("\nEnter delay in seconds: ") or "1.0")
-                    self._add_action('delay', 0, 0, current_time, {'duration': delay})
-                    print(f"Added {delay}s delay")
+                    try:
+                        delay = float(input("\nEnter delay in seconds (press Enter to confirm): ") or "1.0")
+                        self._add_action('delay', 0, 0, current_time, {'duration': delay})
+                        print(f"Added {delay}s delay")
+                    except ValueError:
+                        print("Invalid input, using 1.0 second default")
+                        self._add_action('delay', 0, 0, current_time, {'duration': 1.0})
                     
-                    # Wait for key release
                     while keyboard.is_pressed('f7'):
                         time.sleep(0.1)
                 
                 # Auto-click detection (enabled by default)
-                if self.auto_detect_clicks:
+                if self.auto_detect_clicks and self._is_game_window_focused():
                     try:
                         # Method 1: Try win32 API for reliable mouse detection
                         import win32api
@@ -150,13 +157,13 @@ class AttackRecorder:
                     except Exception as e:
                         # Method 2: Fallback using pyautogui mouse detection
                         try:
-                            # Check if mouse button is pressed using alternative method
-                            if hasattr(pyautogui, '_mouseDown') and pyautogui._mouseDown:
-                                x, y = pyautogui.position()
-                                if (current_time - self._last_click_time) > 0.15:
-                                    self._add_action('click', x, y, current_time)
-                                    print(f"🖱️ Auto-recorded click at ({x}, {y}) [fallback]")
-                                    self._last_click_time = current_time
+                            if self._is_game_window_focused():
+                                if hasattr(pyautogui, '_mouseDown') and pyautogui._mouseDown:
+                                    x, y = pyautogui.position()
+                                    if (current_time - self._last_click_time) > 0.15:
+                                        self._add_action('click', x, y, current_time)
+                                        print(f"🖱️ Auto-recorded click at ({x}, {y}) [fallback]")
+                                        self._last_click_time = current_time
                         except:
                             # If all auto-detection fails, inform user about manual mode
                             if not hasattr(self, '_fallback_warned'):
@@ -182,6 +189,24 @@ class AttackRecorder:
         print(f"Auto-click detection: {status}")
         return self.auto_detect_clicks
     
+    def _is_troop_bar_click(self, y: int) -> bool:
+        """Check if a click is in the troop bar region (bottom 15% of screen)"""
+        screen_height = pyautogui.size()[1]
+        return y > screen_height * 0.85
+
+    def _capture_troop_icon(self, x: int, y: int, size: int = 80) -> Optional[str]:
+        """Capture the troop icon at the clicked position and return as base64 PNG"""
+        try:
+            half = size // 2
+            region = (x - half, y - half, size, size)
+            screenshot = pyautogui.screenshot(region=region)
+            buffer = BytesIO()
+            screenshot.save(buffer, format='PNG')
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+        except Exception as e:
+            print(f"Could not capture troop icon at ({x}, {y}): {e}")
+            return None
+
     def _add_action(self, action_type: str, x: int, y: int, timestamp: float, extra_data: Optional[Dict] = None) -> None:
         """Add an action to the current recording"""
         action = {
@@ -194,12 +219,32 @@ class AttackRecorder:
         
         if extra_data:
             action.update(extra_data)
+
+        if action_type == 'click' and self._is_troop_bar_click(y):
+            icon_data = self._capture_troop_icon(x, y)
+            if icon_data:
+                action['troop_bar_click'] = True
+                action['troop_icon'] = icon_data
         
         self.current_recording.append(action)
     
     def _distance(self, pos1: Tuple[int, int], pos2: Tuple[int, int]) -> float:
         """Calculate distance between two points"""
         return ((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2) ** 0.5
+    
+    def _is_game_window_focused(self) -> bool:
+        """Check if the game window is currently in focus"""
+        try:
+            if not self.game_window_bounds:
+                return True
+            
+            hwnd = win32gui.GetForegroundWindow()
+            window_title = win32gui.GetWindowText(hwnd)
+            
+            return any(title.lower() in window_title.lower() 
+                      for title in ['clash of clans', 'bluestacks', 'nox', 'ldplayer', 'memu'])
+        except:
+            return True
     
     def _save_recording(self, name: str, recording: List[Dict]) -> str:
         """Save a recording to file"""
@@ -211,7 +256,8 @@ class AttackRecorder:
             'name': name,
             'created': datetime.now().isoformat(),
             'duration': recording[-1]['timestamp'] if recording else 0,
-            'actions': recording
+            'actions': recording,
+            'game_window_bounds': self.game_window_bounds
         }
         
         try:
@@ -248,6 +294,38 @@ class AttackRecorder:
         except Exception as e:
             print(f"Error loading recording: {e}")
             return None
+    
+    def rename_recording(self, old_name: str, new_name: str) -> bool:
+        """Rename a recording"""
+        old_filepath = os.path.join(self.recordings_dir, f"{old_name}.json")
+        new_filepath = os.path.join(self.recordings_dir, f"{new_name}.json")
+        
+        if not os.path.exists(old_filepath):
+            print(f"Recording not found: {old_name}")
+            return False
+        
+        if os.path.exists(new_filepath):
+            print(f"A recording with name '{new_name}' already exists")
+            return False
+        
+        try:
+            # Load the recording and update the name field
+            with open(old_filepath, 'r') as f:
+                recording_data = json.load(f)
+            
+            recording_data['name'] = new_name
+            
+            # Save with new name
+            with open(new_filepath, 'w') as f:
+                json.dump(recording_data, f, indent=2)
+            
+            # Delete old file
+            os.remove(old_filepath)
+            print(f"Renamed recording: '{old_name}' -> '{new_name}'")
+            return True
+        except Exception as e:
+            print(f"Error renaming recording: {e}")
+            return False
     
     def delete_recording(self, session_name: str) -> bool:
         """Delete a recording"""

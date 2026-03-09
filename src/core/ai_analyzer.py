@@ -1,49 +1,35 @@
-"""
-AI Analyzer - Google Gemini integration for base analysis
-"""
-
 import os
 import base64
 import json
 import requests
+import time
+import re
 from typing import Dict, Optional, Tuple
 from PIL import Image
 import io
 
 class AIAnalyzer:
-    """Google Gemini AI analyzer for COC base evaluation"""
     
     def __init__(self, api_key: str, logger):
         self.api_key = api_key
         self.logger = logger
-        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite-preview-06-17:generateContent"
+        self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
         
-        # Analysis prompt template
         self.analysis_prompt = """
-You are an expert Clash of Clans player analyzing enemy bases for attack decisions.
-
 Analyze this screenshot and provide:
-1. Loot amounts (Gold, Elixir, Dark Elixir) - estimate the visible amounts
-2. Town Hall level (1-12)
-3. Base difficulty assessment (Easy/Medium/Hard)
-4. Attack recommendation (ATTACK or SKIP)
-
-Consider these factors:
-- Loot amounts: Good loot = 300k+ gold/elixir, 2k+ dark elixir
-- Town Hall level: Prefer similar or lower level bases
-- Base layout: Look for weak spots, exposed defenses
-- Risk vs reward: High loot with reasonable difficulty = ATTACK
+1. Resource amounts - estimate the visible amounts
+2. Difficulty assessment (Easy/Medium/Hard)
+3. Recommendation (PROCEED or SKIP)
 
 Respond in this exact JSON format:
 {
-    "loot": {
-        "gold": estimated_gold_amount,
-        "elixir": estimated_elixir_amount,
-        "dark_elixir": estimated_dark_elixir_amount
+    "resources": {
+        "primary": estimated_primary_amount,
+        "secondary": estimated_secondary_amount,
+        "tertiary": estimated_tertiary_amount
     },
-    "townhall_level": town_hall_level_number,
     "difficulty": "Easy/Medium/Hard",
-    "recommendation": "ATTACK/SKIP",
+    "recommendation": "PROCEED/SKIP",
     "reasoning": "Brief explanation of decision"
 }
 """
@@ -90,21 +76,19 @@ Respond in this exact JSON format:
         """Encode image to base64 for Gemini API"""
         try:
             with open(image_path, 'rb') as image_file:
-                # Resize image if too large (Gemini has size limits)
                 img = Image.open(image_file)
                 
-                # Resize if width > 1024px to reduce API payload
-                if img.width > 1024:
-                    ratio = 1024 / img.width
+                max_dimension = 1024
+                if img.width > max_dimension or img.height > max_dimension:
+                    ratio = min(max_dimension / img.width, max_dimension / img.height)
+                    new_width = int(img.width * ratio)
                     new_height = int(img.height * ratio)
-                    img = img.resize((1024, new_height), Image.Resampling.LANCZOS)
+                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
                 
-                # Convert to bytes
                 img_byte_arr = io.BytesIO()
                 img.save(img_byte_arr, format='PNG')
                 img_byte_arr = img_byte_arr.getvalue()
                 
-                # Encode to base64
                 return base64.b64encode(img_byte_arr).decode('utf-8')
                 
         except Exception as e:
@@ -138,104 +122,139 @@ LOOT READING RULES:
 - Be extremely careful reading the digits
 
 TOWN HALL RULES:
-- Town Hall 13, 14, 15, 16+ are TOO STRONG - always SKIP these
-- Only attack Town Hall 12 and below
-- Look at the Town Hall building design to identify the level
+- Identify the Town Hall level by looking at the Town Hall building design
+- Compare detected TH level to the maximum allowed (will be enforced by the bot)
+- Look at the Town Hall building design to identify the level (currently max is TH18)
 
 DECISION CRITERIA:
-- ATTACK only if: ALL loot types meet requirements AND Town Hall is level 12 or below
-- SKIP if: ANY loot type is below requirements OR Town Hall is level 13+
+- ATTACK only if: ALL loot types meet requirements
+- SKIP if: ANY loot type is below requirements
 - Do NOT consider base difficulty - focus ONLY on loot amounts and Town Hall level
+- Note: The bot will handle Town Hall level filtering based on configured maximum
 
 Examples:
 - Gold: 19,015 (need 500,000) → SKIP (loot too low)
-- Town Hall 13 → SKIP (too strong regardless of loot)
-- Town Hall 12 with good loot → ATTACK
-- Town Hall 11 with good loot → ATTACK
+- Town Hall 18 with good loot → ATTACK (bot will decide if TH is acceptable)
+- Town Hall 15 with good loot → ATTACK (if loot meets requirements)
+- Town Hall 12 with good loot → ATTACK (if loot meets requirements)
 
-Respond in this exact JSON format:
+Respond in this exact JSON format (use ONLY numbers, NO commas or spaces in numbers):
 {{
     "loot": {{
-        "gold": actual_gold_amount_you_read,
-        "elixir": actual_elixir_amount_you_read,
-        "dark_elixir": actual_dark_elixir_amount_you_read
+        "gold": 0,
+        "elixir": 0,
+        "dark_elixir": 0
     }},
-    "townhall_level": town_hall_level_number,
+    "townhall_level": 0,
     "difficulty": "Easy/Medium/Hard",
     "recommendation": "ATTACK/SKIP",
-    "reasoning": "Specific reason: Gold X vs required Y, Elixir A vs required B, Dark C vs required D, TH level E"
+    "reasoning": "Brief explanation"
 }}
+
+Replace the 0 values with actual numbers (no commas, no spaces). Example: use 500000 not 500,000
 """
     
     def _send_gemini_request(self, image_data: str, prompt: str) -> Optional[Dict]:
-        """Send request to Google Gemini API"""
-        try:
-            headers = {
-                'Content-Type': 'application/json',
-            }
-            
-            payload = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": "image/png",
-                                "data": image_data
-                            }
-                        }
-                    ]
-                }],
-                "generationConfig": {
-                    "temperature": 0.1,  # Low temperature for consistent analysis
-                    "topK": 1,
-                    "topP": 1,
-                    "maxOutputTokens": 1024,
+        """Send request to Google Gemini API with retry logic"""
+        max_retries = 3
+        base_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                headers = {
+                    'Content-Type': 'application/json',
+                    'x-goog-api-key': self.api_key,
                 }
-            }
-            
-            url = f"{self.base_url}?key={self.api_key}"
-            
-            self.logger.info("🌐 Sending request to Gemini API...")
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
                 
-                # Extract text from response
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    content = result['candidates'][0]['content']['parts'][0]['text']
+                payload = {
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inline_data": {
+                                    "mime_type": "image/png",
+                                    "data": image_data
+                                }
+                            }
+                        ]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "topK": 1,
+                        "topP": 1,
+                        "maxOutputTokens": 1024,
+                    }
+                }
+                
+                url = self.base_url
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                
+                if response.status_code == 200:
+                    result = response.json()
                     
-                    # Parse JSON response
-                    try:
-                        # Clean up response (remove markdown formatting if present)
-                        content = content.strip()
-                        if content.startswith('```json'):
-                            content = content[7:]
-                        if content.endswith('```'):
-                            content = content[:-3]
-                        content = content.strip()
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        content = result['candidates'][0]['content']['parts'][0]['text']
                         
-                        analysis = json.loads(content)
-                        return analysis
-                        
-                    except json.JSONDecodeError as e:
-                        self.logger.error(f"Failed to parse AI response as JSON: {e}")
-                        self.logger.error(f"Raw response: {content}")
+                        try:
+                            content = content.strip()
+                            if content.startswith('```json'):
+                                content = content[7:]
+                            if content.startswith('```'):
+                                content = content[3:]
+                            if content.endswith('```'):
+                                content = content[:-3]
+                            content = content.strip()
+                            
+                            try:
+                                analysis = json.loads(content)
+                            except json.JSONDecodeError:
+                                content = re.sub(r':\s*(\d+),(\d+)', r': \1\2', content)
+                                analysis = json.loads(content)
+                            
+                            return analysis
+                            
+                        except json.JSONDecodeError as e:
+                            self.logger.error(f"Failed to parse AI response: {e}")
+                            self.logger.debug(f"Response was: {content}")
+                            return None
+                    else:
+                        self.logger.error("No candidates in response")
+                        return None
+                
+                elif response.status_code in [429, 500, 502, 503, 504]:
+                    if attempt < max_retries - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        self.logger.warning(f"API error {response.status_code}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        self.logger.error(f"API error {response.status_code} after retries")
                         return None
                 else:
-                    self.logger.error("No candidates in Gemini response")
+                    self.logger.error(f"API error: {response.status_code}")
                     return None
-            else:
-                self.logger.error(f"Gemini API error: {response.status_code} - {response.text}")
-                return None
-                
-        except requests.exceptions.Timeout:
-            self.logger.error("Gemini API request timeout")
-            return None
-        except Exception as e:
-            self.logger.error(f"Gemini API request error: {e}")
-            return None
+                    
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    self.logger.warning(f"Timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    self.logger.error(f"Timeout after retries")
+                    return None
+                    
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    self.logger.warning(f"Error: {e}, retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    self.logger.error(f"Request failed: {e}")
+                    return None
+        
+        return None
     
     def _create_error_response(self, error_msg: str) -> Dict:
         """Create error response with SKIP recommendation"""
@@ -251,19 +270,39 @@ Respond in this exact JSON format:
     def test_connection(self) -> bool:
         """Test connection to Gemini API"""
         try:
-            # Create a simple test request
-            headers = {'Content-Type': 'application/json'}
+            if not self.api_key:
+                self.logger.error("❌ API key is empty")
+                return False
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': self.api_key,
+            }
             payload = {
                 "contents": [{"parts": [{"text": "Hello, respond with 'OK'"}]}],
                 "generationConfig": {"maxOutputTokens": 10}
             }
             
-            url = f"{self.base_url}?key={self.api_key}"
+            url = self.base_url
             response = requests.post(url, headers=headers, json=payload, timeout=10)
             
             if response.status_code == 200:
                 self.logger.info("✅ Gemini API connection successful")
                 return True
+            elif response.status_code == 400:
+                self.logger.error(f"❌ Gemini API test failed: 400 Bad Request - Check API key format")
+                try:
+                    error_detail = response.json()
+                    self.logger.error(f"   Details: {error_detail}")
+                except:
+                    pass
+                return False
+            elif response.status_code == 401:
+                self.logger.error(f"❌ Gemini API test failed: 401 Unauthorized - API key may be invalid")
+                return False
+            elif response.status_code == 403:
+                self.logger.error(f"❌ Gemini API test failed: 403 Forbidden - Check API permissions")
+                return False
             else:
                 self.logger.error(f"❌ Gemini API test failed: {response.status_code}")
                 return False
