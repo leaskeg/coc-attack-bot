@@ -51,3 +51,8 @@ config.json
 *.log
 *.bak 
 src/utils/config.py
+
+# AI/IDE tooling
+.zencoder/
+.kiro/
+.zenflow/
