@@ -6,6 +6,7 @@ import argparse
 import time
 from src.bot_controller import BotController
 from src.ui.console_ui import ConsoleUI
+from src.ui.gui import BotGUI
 from src.utils.logger import Logger
 from src.utils.stats_display import StatsDisplay
 
@@ -104,6 +105,11 @@ Examples:
         help='Run auto-attack in headless mode (no UI)'
     )
     parser.add_argument(
+        '--console',
+        action='store_true',
+        help='Use the legacy console UI instead of the GUI'
+    )
+    parser.add_argument(
         '-g', '--group',
         type=str,
         default=None,
@@ -126,9 +132,12 @@ Examples:
         
         if args.auto_attack:
             run_headless_auto_attack(controller, args.group)
-        else:
+        elif args.console:
             ui = ConsoleUI(controller)
             ui.run()
+        else:
+            gui = BotGUI(controller)
+            gui.run()
         
     except KeyboardInterrupt:
         print("\n[INFO] Application stopped by user")

@@ -199,7 +199,11 @@ class AutoAttacker:
             if not self._find_good_loot_target():
                 self.logger.warning("Could not find good loot target")
                 return False
-            
+
+            if not self.is_running:
+                self.logger.info("Stopped before attack could begin")
+                return False
+
             session_name = self._get_next_attack_session()
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
             
@@ -333,6 +337,9 @@ class AutoAttacker:
     
     def _check_loot_with_ai(self, screenshot_path: str) -> bool:
         """Analyze the base with Gemini and decide whether to attack."""
+        if not self.is_running:
+            return False
+
         min_gold = int(self.config.get('ai_analyzer.min_gold', 300000) or 300000)
         min_elixir = int(self.config.get('ai_analyzer.min_elixir', 300000) or 300000)
         min_dark = int(self.config.get('ai_analyzer.min_dark_elixir', 2000) or 2000)

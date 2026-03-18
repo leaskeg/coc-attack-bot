@@ -183,6 +183,7 @@ Replace the 0 values with actual numbers (no commas, no spaces). Example: use 50
                         "topK": 1,
                         "topP": 1,
                         "maxOutputTokens": 1024,
+                        "responseMimeType": "application/json",
                     }
                 }
                 
@@ -195,28 +196,13 @@ Replace the 0 values with actual numbers (no commas, no spaces). Example: use 50
                     if 'candidates' in result and len(result['candidates']) > 0:
                         content = result['candidates'][0]['content']['parts'][0]['text']
                         
-                        try:
-                            content = content.strip()
-                            if content.startswith('```json'):
-                                content = content[7:]
-                            if content.startswith('```'):
-                                content = content[3:]
-                            if content.endswith('```'):
-                                content = content[:-3]
-                            content = content.strip()
-                            
-                            try:
-                                analysis = json.loads(content)
-                            except json.JSONDecodeError:
-                                content = re.sub(r':\s*(\d+),(\d+)', r': \1\2', content)
-                                analysis = json.loads(content)
-                            
+                        analysis = self._parse_json_response(content)
+                        if analysis is not None:
                             return analysis
-                            
-                        except json.JSONDecodeError as e:
-                            self.logger.error(f"Failed to parse AI response: {e}")
-                            self.logger.debug(f"Response was: {content}")
-                            return None
+                        
+                        self.logger.error(f"Failed to parse AI response after all attempts")
+                        self.logger.debug(f"Response was: {content}")
+                        return None
                     else:
                         self.logger.error("No candidates in response")
                         return None
@@ -256,6 +242,73 @@ Replace the 0 values with actual numbers (no commas, no spaces). Example: use 50
         
         return None
     
+    def _parse_json_response(self, content: str) -> Optional[Dict]:
+        """Parse JSON from AI response with multiple fallback strategies"""
+        content = content.strip()
+
+        # Stage 1: Strip markdown code fences
+        if content.startswith('```json'):
+            content = content[7:]
+        if content.startswith('```'):
+            content = content[3:]
+        if content.endswith('```'):
+            content = content[:-3]
+        content = content.strip()
+
+        # Stage 2: Direct parse
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Stage 3: Extract the outermost {...} block
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if json_match:
+            json_str = json_match.group(0)
+
+            # Fix commas inside numbers (e.g. 123,456 -> 123456)
+            json_str = re.sub(r'(?<=\d),(?=\d)', '', json_str)
+            # Fix trailing commas before closing brace/bracket
+            json_str = re.sub(r',\s*([\}\]])', r'\1', json_str)
+
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+
+            # Fix single-quoted strings
+            json_str = re.sub(r"'", '"', json_str)
+            # Re-apply trailing comma fix after quote replacement
+            json_str = re.sub(r',\s*([\}\]])', r'\1', json_str)
+
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Stage 4: Regex field extraction as last resort
+        gold_match = re.search(r'"gold"\s*:\s*([\d,]+)', content)
+        elixir_match = re.search(r'"elixir"\s*:\s*([\d,]+)', content)
+        dark_match = re.search(r'"dark_elixir"\s*:\s*([\d,]+)', content)
+        th_match = re.search(r'"townhall_level"\s*:\s*(\d+)', content)
+        rec_match = re.search(r'"recommendation"\s*:\s*"?(ATTACK|SKIP)"?', content, re.IGNORECASE)
+        reason_match = re.search(r'"reasoning"\s*:\s*"([^"]*)"', content)
+
+        if gold_match and elixir_match:
+            return {
+                "loot": {
+                    "gold": int(gold_match.group(1).replace(',', '')),
+                    "elixir": int(elixir_match.group(1).replace(',', '')),
+                    "dark_elixir": int(dark_match.group(1).replace(',', '')) if dark_match else 0,
+                },
+                "townhall_level": int(th_match.group(1)) if th_match else 0,
+                "difficulty": "Unknown",
+                "recommendation": rec_match.group(1).upper() if rec_match else "SKIP",
+                "reasoning": reason_match.group(1) if reason_match else "Parsed via regex fallback",
+            }
+
+        return None
+
     def _create_error_response(self, error_msg: str) -> Dict:
         """Create error response with SKIP recommendation"""
         return {
