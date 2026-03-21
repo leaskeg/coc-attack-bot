@@ -156,8 +156,8 @@ Replace the 0 values with actual numbers (no commas, no spaces). Example: use 50
     
     def _send_gemini_request(self, image_data: str, prompt: str) -> Optional[Dict]:
         """Send request to Google Gemini API with retry logic"""
-        max_retries = 3
-        base_delay = 2
+        max_retries = 2
+        base_delay = 3
         
         for attempt in range(max_retries):
             try:

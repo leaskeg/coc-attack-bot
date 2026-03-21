@@ -132,6 +132,40 @@ class AutoAttacker:
         
         self.logger.info("Auto attacker stopped")
     
+    def _click_at(self, x: int, y: int, jitter_pixels: int = 5) -> None:
+        """Perform a human-like click with jitter and variable down-time"""
+        adjusted_x, adjusted_y = add_coordinate_variance(x, y, jitter_pixels)
+        adjusted_x, adjusted_y = self._verify_click_position(adjusted_x, adjusted_y)
+        
+        # Randomize duration between mouse down and up
+        press_duration = random.uniform(0.08, 0.22)
+        pyautogui.mouseDown(adjusted_x, adjusted_y)
+        time.sleep(press_duration)
+        pyautogui.mouseUp()
+
+    def _park_mouse(self) -> None:
+        """Move mouse to a 'neutral' zone (edges or off-window) to simulate human waiting"""
+        screen_w, screen_h = pyautogui.size()
+        
+        # Choose a random edge or corner
+        destinations = [
+            (screen_w - 50, screen_h // 2),  # Right edge
+            (50, screen_h // 2),            # Left edge
+            (screen_w // 2, 50),            # Top edge
+            (screen_w - 50, screen_h - 50)   # Bottom right corner
+        ]
+        
+        dest_x, dest_y = random.choice(destinations)
+        
+        # Move with a slow, relaxed speed
+        move_duration = random.uniform(0.4, 1.2)
+        pyautogui.moveTo(dest_x, dest_y, duration=move_duration, tween=pyautogui.easeInOutQuad)
+        
+        # Occasional micro-movement while parked
+        if random.random() < 0.4:
+            time.sleep(random.uniform(0.5, 2.0))
+            pyautogui.moveRel(random.randint(-10, 10), random.randint(-10, 10), duration=0.3)
+
     def _auto_attack_loop(self) -> None:
         """Main automation loop"""
         try:
@@ -158,12 +192,23 @@ class AutoAttacker:
                 if self.stats['total_attacks'] % 10 == 0:
                     self.screen_capture.cleanup_old_screenshots(max_age_hours=24)
                 
+                # Check for a 'Long Break' (simulating human getting distracted or tired)
+                # Chance: 15% every attack after the 3rd
+                if self.is_running and self.stats['total_attacks'] > 3 and random.random() < 0.15:
+                    long_break = random.uniform(180, 480) # 3 to 8 minutes
+                    self.logger.info(f"☕ Taking a long break (simulating human)... {long_break/60:.1f} minutes")
+                    self._park_mouse()
+                    time.sleep(long_break)
+                    
                 # Short break between attacks (more variable)
                 if self.is_running:
                     next_min = self.config.get('auto_attacker.next_attempt_delay', 10)
                     next_max = self.config.get('auto_attacker.next_attempt_delay_max', 35)
                     randomized_delay = get_varied_delay_range(next_min, next_max, variance=0.4)
                     self.logger.info(f"⏳ Waiting {randomized_delay:.1f} seconds before next attack...")
+                    # Park mouse during shorter wait too
+                    if randomized_delay > 15:
+                        self._park_mouse()
                     time.sleep(randomized_delay)
                     add_human_like_hesitation(threshold=0.2)
                     
@@ -172,9 +217,33 @@ class AutoAttacker:
         finally:
             self.is_running = False
     
+    def _zoom_out(self) -> None:
+        """Force zoom out to ensure full base visibility"""
+        self.logger.info("🔍 Zooming out for maximum visibility...")
+        
+        # Method 1: Ctrl + Mouse Wheel Down (Common for emulators)
+        pyautogui.keyDown('ctrl')
+        for _ in range(10):
+            pyautogui.scroll(-500)
+            time.sleep(0.05)
+        pyautogui.keyUp('ctrl')
+        
+        # Method 2: Pressing '-' key (Fallback for some emulators)
+        for _ in range(5):
+            pyautogui.press('-')
+            time.sleep(0.1)
+        
+        time.sleep(0.5)
+
     def _execute_attack_sequence(self) -> bool:
         """Execute the complete attack sequence following your exact process"""
         try:
+            # Ensure we are not stuck in any previous menus or popups
+            self._escape_menu()
+            
+            # Zoom out before starting to see the whole base
+            self._zoom_out()
+            
             coords = self.coordinate_mapper.get_coordinates()
             
             if 'attack' not in coords:
@@ -187,13 +256,9 @@ class AutoAttacker:
             
             attack_coord = coords['attack']
             x, y = attack_coord['x'], attack_coord['y']
-            x, y = self._verify_click_position(x, y)
             self.logger.info(f"1️⃣ Clicking attack button at ({x}, {y})")
             add_human_like_hesitation(threshold=0.15)
-            if random.random() < 0.25:
-                self._click_with_jitter(x, y, jitter_pixels=6)
-            else:
-                pyautogui.click(x, y)
+            self._click_at(x, y, jitter_pixels=6)
             time.sleep(add_random_delay(attack_button_delay, variance=0.5))
             
             if not self._find_good_loot_target():
@@ -260,12 +325,8 @@ class AutoAttacker:
             if not in_matchmaking:
                 find_coord = coords['find_a_match']
                 x, y = find_coord['x'], find_coord['y']
-                x, y = self._verify_click_position(x, y)
                 self.logger.info(f"2️⃣ Clicking find_a_match at ({x}, {y}) - Attempt {search_attempts}/{max_attempts}")
-                if random.random() < 0.2:
-                    self._click_with_jitter(x, y, jitter_pixels=8)
-                else:
-                    pyautogui.click(x, y)
+                self._click_at(x, y, jitter_pixels=8)
                 add_human_like_hesitation(threshold=0.15)
 
                 wait_time = add_random_delay(base_info_wait, variance=search_variance)
@@ -274,12 +335,8 @@ class AutoAttacker:
 
                 attack_2_coord = coords['attack_button_2']
                 x, y = attack_2_coord['x'], attack_2_coord['y']
-                x, y = self._verify_click_position(x, y)
                 self.logger.info(f"3️⃣ Clicking attack_button_2 at ({x}, {y}) to enter matchmaking...")
-                if random.random() < 0.2:
-                    self._click_with_jitter(x, y, jitter_pixels=8)
-                else:
-                    pyautogui.click(x, y)
+                self._click_at(x, y, jitter_pixels=8)
                 add_human_like_hesitation(threshold=0.12)
 
                 wait_time = add_random_delay(base_load_wait, variance=load_variance)
@@ -300,7 +357,14 @@ class AutoAttacker:
             decision_to_attack = False
             if use_ai:
                 self.logger.info("5️⃣ Checking enemy loot with AI...")
-                decision_to_attack = self._check_loot_with_ai(screenshot_path)
+                decision_to_attack, analysis = self._check_loot_with_ai(screenshot_path)
+                
+                # Check if AI detected a menu or popup instead of a base
+                if analysis and self._is_menu_detected(analysis):
+                    self.logger.warning("⚠️ Menu or popup detected (e.g. Season Pass)! Attempting to escape...")
+                    self._escape_menu()
+                    in_matchmaking = False  # Need to restart from home screen/attack menu
+                    continue
             else:
                 self.logger.info("5️⃣ Performing simple loot check (AI Disabled)...")
                 decision_to_attack = self._check_loot()
@@ -316,12 +380,8 @@ class AutoAttacker:
             self.logger.info("❌ Base not suitable. Clicking next...")
             next_coord = coords['next_button']
             x, y = next_coord['x'], next_coord['y']
-            x, y = self._verify_click_position(x, y)
             add_human_like_hesitation(threshold=0.2)
-            if random.random() < 0.2:
-                self._click_with_jitter(x, y, jitter_pixels=6)
-            else:
-                pyautogui.click(x, y)
+            self._click_at(x, y, jitter_pixels=6)
             time.sleep(add_random_delay(reject_wait, variance=0.4))
             time.sleep(cooldown_wait)
         
@@ -335,10 +395,10 @@ class AutoAttacker:
         
         return False
     
-    def _check_loot_with_ai(self, screenshot_path: str) -> bool:
+    def _check_loot_with_ai(self, screenshot_path: str) -> Tuple[bool, Optional[Dict]]:
         """Analyze the base with Gemini and decide whether to attack."""
         if not self.is_running:
-            return False
+            return False, None
 
         min_gold = int(self.config.get('ai_analyzer.min_gold', 300000) or 300000)
         min_elixir = int(self.config.get('ai_analyzer.min_elixir', 300000) or 300000)
@@ -349,7 +409,8 @@ class AutoAttacker:
 
         if analysis.get("error"):
             self.logger.error(f"AI analysis failed: {analysis['reasoning']}")
-            return False
+            self.logger.warning("⚠️ Fallback: Attacking base due to AI error (Fail-Open strategy)")
+            return True, analysis
 
         loot = analysis.get("loot", {})
         extracted_gold = int(loot.get("gold", 0) or 0)
@@ -370,19 +431,19 @@ class AutoAttacker:
         
         if townhall_level > max_th:
             self.logger.info(f"❌ Overriding AI: Town Hall {townhall_level} is too strong (max allowed: {max_th})")
-            return False
+            return False, analysis
         
         if not (gold_ok and elixir_ok and dark_ok):
             self.logger.info(f"❌ Loot requirements not met: Gold{' ' if gold_ok else ' NOT '}OK, Elixir{' ' if elixir_ok else ' NOT '}OK, Dark{' ' if dark_ok else ' NOT '}OK")
-            return False
+            return False, analysis
 
         recommendation = analysis.get("recommendation", "SKIP").upper()
         if recommendation != "ATTACK":
             self.logger.info(f"❌ AI recommends SKIP: {analysis.get('reasoning', 'No reason provided')}")
-            return False
+            return False, analysis
         
         self.logger.info(f"✅ AI recommends ATTACK!")
-        return True
+        return True, analysis
 
     def _check_loot(self) -> bool:
         """Check if enemy base has good loot"""
@@ -433,7 +494,7 @@ class AutoAttacker:
             self.logger.warning("end_button not mapped - cannot retry automatically")
     
     def _return_home(self) -> None:
-        """Return to home base after battle"""
+        """Return to home base after battle completion"""
         coords = self.coordinate_mapper.get_coordinates()
         
         self.logger.info("🏠 Returning to home base...")
@@ -442,17 +503,43 @@ class AutoAttacker:
             add_human_like_hesitation(threshold=0.25)
             home_coord = coords['return_home']
             x, y = home_coord['x'], home_coord['y']
-            x, y = self._verify_click_position(x, y)
             self.logger.info(f"Clicking return_home at ({x}, {y})")
-            if random.random() < 0.15:
-                self._click_with_jitter(x, y, jitter_pixels=5)
-            else:
-                pyautogui.click(x, y)
+            self._click_at(x, y, jitter_pixels=5)
             return_wait = self.config.get('auto_attacker.return_home_wait', 5.5)
             time.sleep(add_random_delay(return_wait, variance=0.4))
         else:
             self.logger.warning("return_home button not mapped")
     
+    def _is_menu_detected(self, analysis: Dict) -> bool:
+        """Check if AI detected a menu or popup instead of a base"""
+        reasoning = analysis.get("reasoning", "").lower()
+        if not reasoning:
+            return False
+            
+        menu_keywords = ["menu", "screen", "rewards", "pass", "task", "card", "event", "shop", "not an enemy base", "not a base"]
+        return any(keyword in reasoning for keyword in menu_keywords)
+
+    def _escape_menu(self) -> None:
+        """Try multiple ways to escape a menu or popup"""
+        coords = self.coordinate_mapper.get_coordinates()
+        
+        # 1. Press ESC key (common for 'Back' or 'Close' in emulators)
+        self.logger.info("⌨️ Pressing ESC to close menu...")
+        pyautogui.press('esc')
+        time.sleep(1.0)
+        
+        # 2. Click 'close_menu' if mapped (top-right X)
+        if 'close_menu' in coords:
+            cm = coords['close_menu']
+            x, y = self._verify_click_position(cm['x'], cm['y'])
+            self.logger.info(f"🖱️ Clicking close_menu at ({x}, {y})")
+            pyautogui.click(x, y)
+            time.sleep(1.5)
+            
+        # 3. Final safety ESC
+        pyautogui.press('esc')
+        time.sleep(1.0)
+
     def _get_next_attack_session(self) -> str:
         """Get a random attack variation from all configured attacks"""
         if not self.attack_sessions:
@@ -509,6 +596,8 @@ class AutoAttacker:
             'attack_button_2': 'Green Attack! button on opponent info screen (to view full base)',
             'next_button': 'Next button to skip bases with low loot',
             'return_home': 'Return home button after battle completion',
+            'close_menu': 'Close/X button to exit accidentally opened menus (top right)',
+            'end_button': 'End/Cancel search button (usually bottom right during search)',
             'enemy_gold': 'Enemy gold display for loot checking',
             'enemy_elixir': 'Enemy elixir display for loot checking',
             'enemy_dark_elixir': 'Enemy dark elixir display for loot checking'

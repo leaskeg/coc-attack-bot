@@ -74,8 +74,10 @@ class BotGUI:
         style.configure("TLabelframe", background=FRAME_BG, foreground=ACCENT, bordercolor=BORDER)
         style.configure("TLabelframe.Label", background=FRAME_BG, foreground=ACCENT)
         style.configure("TEntry", fieldbackground=ENTRY_BG, foreground=TEXT, bordercolor=BORDER, insertcolor=TEXT)
-        style.configure("TCheckbutton", background=FRAME_BG, foreground=TEXT)
-        style.map("TCheckbutton", background=[("active", FRAME_BG)])
+        style.configure("TCheckbutton", background=BG, foreground=TEXT)
+        style.map("TCheckbutton", background=[("active", BG)])
+        style.configure("Card.TCheckbutton", background=FRAME_BG, foreground=TEXT)
+        style.map("Card.TCheckbutton", background=[("active", FRAME_BG)])
         style.configure("Treeview", background=ENTRY_BG, foreground=TEXT, fieldbackground=ENTRY_BG, bordercolor=BORDER)
         style.configure("Treeview.Heading", background=BTN_BG, foreground=ACCENT, bordercolor=BORDER)
         style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", BG)])
@@ -114,7 +116,6 @@ class BotGUI:
         self._tab_coords = ttk.Frame(self._notebook)
         self._tab_ai = ttk.Frame(self._notebook)
         self._tab_config = ttk.Frame(self._notebook)
-        self._tab_logs = ttk.Frame(self._notebook)
 
         self._notebook.add(self._tab_dashboard, text="Dashboard")
         self._notebook.add(self._tab_auto, text="Auto Attacker")
@@ -122,7 +123,6 @@ class BotGUI:
         self._notebook.add(self._tab_coords, text="Coordinates")
         self._notebook.add(self._tab_ai, text="AI Analyzer")
         self._notebook.add(self._tab_config, text="Config")
-        self._notebook.add(self._tab_logs, text="Logs")
 
         self._build_dashboard_tab()
         self._build_auto_attacker_tab()
@@ -130,7 +130,6 @@ class BotGUI:
         self._build_coords_tab()
         self._build_ai_tab()
         self._build_config_tab()
-        self._build_logs_tab()
 
     def _card(self, parent, title=None, padx=6, pady=6, **kw):
         outer = ttk.Frame(parent, style="Card.TFrame", padding=1)
@@ -182,23 +181,48 @@ class BotGUI:
         ttk.Button(left, text="Detect Game Window", command=self._detect_window).pack(fill="x", pady=3)
         ttk.Button(left, text="Validate Config", command=self._validate_config_dash).pack(fill="x", pady=3)
 
-        right_outer, right = self._card(content, "Status")
+        right_outer, right = self._card(content, "Status & Activity")
         right_outer.pack(side="left", fill="both", expand=True, padx=(4, 0))
 
-        ttk.Label(right, text="Game Window:", style="Card.TLabel", font=("Segoe UI", 9, "bold"),
-                  background=FRAME_BG).pack(anchor="w")
-        self._window_status_lbl = ttk.Label(right, text="Not detected", style="Card.TLabel", foreground=RED)
-        self._window_status_lbl.pack(anchor="w", pady=(0, 8))
+        status_grid = ttk.Frame(right, style="Card.TFrame")
+        status_grid.pack(fill="x", pady=(0, 8))
 
-        ttk.Label(right, text="Config Validation:", style="Card.TLabel", font=("Segoe UI", 9, "bold"),
-                  background=FRAME_BG).pack(anchor="w")
-        self._config_status_lbl = ttk.Label(right, text="Not checked", style="Card.TLabel", foreground=SUBTEXT)
-        self._config_status_lbl.pack(anchor="w")
+        ttk.Label(status_grid, text="Game Window:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=0, column=0, sticky="w")
+        self._window_status_lbl = ttk.Label(status_grid, text="Not detected", style="Card.TLabel", foreground=RED, background=FRAME_BG)
+        self._window_status_lbl.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        self._config_errors_text = tk.Text(right, height=6, bg=ENTRY_BG, fg=TEXT,
+        ttk.Label(status_grid, text="Config Status:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self._config_status_lbl = ttk.Label(status_grid, text="Not checked", style="Card.TLabel", foreground=SUBTEXT, background=FRAME_BG)
+        self._config_status_lbl.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+
+        ttk.Separator(right).pack(fill="x", pady=8)
+
+        log_header = ttk.Frame(right, style="Card.TFrame")
+        log_header.pack(fill="x", pady=(0, 4))
+        ttk.Label(log_header, text="Application Logs", style="CardTitle.TLabel", background=FRAME_BG).pack(side="left")
+        
+        self._log_level_var = tk.StringVar(value="ALL")
+        log_filter = ttk.Combobox(log_header, textvariable=self._log_level_var, 
+                                  values=("ALL", "INFO", "WARNING", "ERROR"), 
+                                  state="readonly", width=10)
+        log_filter.pack(side="right")
+        log_filter.bind("<<ComboboxSelected>>", lambda e: self._set_log_filter(self._log_level_var.get()))
+
+        self._log_text = scrolledtext.ScrolledText(right, height=12, bg=BG, fg=TEXT,
                                            insertbackground=TEXT, relief="flat", font=("Consolas", 9))
-        self._config_errors_text.pack(fill="both", expand=True, pady=(4, 0))
-        self._config_errors_text.config(state="disabled")
+        self._log_text.pack(fill="both", expand=True)
+        self._log_text.config(state="disabled")
+        
+        # Configure log tags
+        self._log_text.tag_config("INFO", foreground=TEXT)
+        self._log_text.tag_config("WARNING", foreground=YELLOW)
+        self._log_text.tag_config("ERROR", foreground=RED)
+        self._log_text.tag_config("DEBUG", foreground=SUBTEXT)
+
+        btn_row = ttk.Frame(right, style="Card.TFrame")
+        btn_row.pack(fill="x", pady=(4, 0))
+        ttk.Button(btn_row, text="Clear Logs", command=self._log_clear, padding=2).pack(side="left")
+        ttk.Checkbutton(btn_row, text="Auto-scroll", style="Card.TCheckbutton", variable=self._auto_scroll).pack(side="right")
 
     def _dashboard_start(self):
         self.controller.start_auto_attack()
@@ -223,16 +247,13 @@ class BotGUI:
 
     def _validate_config_dash(self):
         ok, errors = self.controller.validate_auto_attack_config()
-        self._config_errors_text.config(state="normal")
-        self._config_errors_text.delete("1.0", "end")
         if ok:
             self._config_status_lbl.config(text="Valid", foreground=GREEN)
-            self._config_errors_text.insert("end", "All checks passed.")
+            logging.getLogger("AppLogger").info("Config validation passed.")
         else:
             self._config_status_lbl.config(text="Invalid", foreground=RED)
             for err in errors:
-                self._config_errors_text.insert("end", f"• {err}\n")
-        self._config_errors_text.config(state="disabled")
+                logging.getLogger("AppLogger").error(f"Config error: {err}")
 
     def _build_auto_attacker_tab(self):
         left = ttk.Frame(self._tab_auto)
@@ -276,7 +297,7 @@ class BotGUI:
         val_frame = ttk.LabelFrame(right, text="Validation Results", padding=8)
         val_frame.pack(fill="both", expand=True, pady=(8, 0))
 
-        self._auto_validate_text = tk.Text(val_frame, bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
+        self._auto_validate_text = tk.Text(val_frame, bg=BG, fg=TEXT, insertbackground=TEXT,
                                            relief="flat", font=("Consolas", 9))
         val_vsb = ttk.Scrollbar(val_frame, orient="vertical", command=self._auto_validate_text.yview)
         self._auto_validate_text.configure(yscrollcommand=val_vsb.set)
@@ -848,50 +869,93 @@ class BotGUI:
         inner = self._build_scrollable_tab(self._tab_config)
         inner.columnconfigure(1, weight=1)
         self._config_vars = {}
-        row = 0
+        
+        # Add 'Show Advanced' toggle at the top
+        self._show_advanced = tk.BooleanVar(value=False)
+        
+        def toggle_advanced():
+            # Rebuild the tab when toggled
+            for widget in inner.winfo_children():
+                widget.destroy()
+            self._build_config_tab_content(inner)
+            
+        ttk.Checkbutton(inner, text="Show Advanced Settings", variable=self._show_advanced, 
+                        command=toggle_advanced).grid(row=0, column=0, columnspan=2, sticky="w", padx=8, pady=8)
+        
+        ttk.Separator(inner).grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=4)
+        
+        self._build_config_tab_content(inner, start_row=2)
 
-        sections = [
-            ("App", [
-                ("Name", "app.name", "str"),
-                ("Version", "app.version", "str"),
+    def _build_config_tab_content(self, inner, start_row=2):
+        row = start_row
+        adv = self._show_advanced.get()
+
+        sections = []
+        
+        # App Section (Advanced Only)
+        if adv:
+            sections.append(("Application Info", [
+                ("App Name", "app.name", "str"),
+                ("App Version", "app.version", "str"),
                 ("Author", "app.author", "str"),
-            ]),
-            ("Automation", [
+            ]))
+
+        # Automation Section
+        auto_fields = [
+            ("Playback Speed", "automation.default_playback_speed", "float"),
+            ("Failsafe Enabled", "automation.failsafe_enabled", "bool"),
+            ("Click Variation", "automation.enable_click_variation", "bool"),
+        ]
+        if adv:
+            auto_fields.extend([
                 ("Default Click Delay", "automation.default_click_delay", "float"),
-                ("Default Playback Speed", "automation.default_playback_speed", "float"),
-                ("Failsafe Enabled", "automation.failsafe_enabled", "bool"),
                 ("Max Recording Duration", "automation.max_recording_duration", "int"),
-                ("Enable Click Variation", "automation.enable_click_variation", "bool"),
                 ("Click Variance Pixels", "automation.click_variance_pixels", "int"),
-            ]),
-            ("Auto Attacker", [
-                ("Max Search Attempts", "auto_attacker.max_search_attempts", "int"),
+            ])
+        sections.append(("Automation", auto_fields))
+
+        # Auto Attacker Section
+        attacker_fields = [
+            ("Max Search Attempts", "auto_attacker.max_search_attempts", "int"),
+            ("Min Battle Duration (s)", "auto_attacker.battle_duration_min", "float"),
+            ("Max Battle Duration (s)", "auto_attacker.battle_duration_max", "float"),
+        ]
+        if adv:
+            attacker_fields.extend([
                 ("Base Wait After Reject", "auto_attacker.base_wait_after_reject", "float"),
                 ("Base Search Wait", "auto_attacker.base_search_wait", "float"),
                 ("Base Info Display Wait", "auto_attacker.base_info_display_wait", "float"),
                 ("Base Load Wait", "auto_attacker.base_load_wait", "float"),
-                ("Battle Duration Min", "auto_attacker.battle_duration_min", "float"),
-                ("Battle Duration Max", "auto_attacker.battle_duration_max", "float"),
                 ("Return Home Wait", "auto_attacker.return_home_wait", "float"),
                 ("Attack Button Delay", "auto_attacker.attack_button_delay", "float"),
                 ("Next Attempt Delay", "auto_attacker.next_attempt_delay", "float"),
                 ("Next Attempt Delay Max", "auto_attacker.next_attempt_delay_max", "float"),
                 ("Search Delay Variance", "auto_attacker.search_delay_variance", "float"),
                 ("Base Load Variance", "auto_attacker.base_load_variance", "float"),
-                ("Patience Fatigue Factor", "auto_attacker.patience_fatigue_factor", "float"),
-            ]),
-            ("Display", [
+                ("Patience Factor", "auto_attacker.patience_fatigue_factor", "float"),
+            ])
+        sections.append(("Search & Attack", attacker_fields))
+
+        # Display Section
+        display_fields = [
+            ("Sound Notifications", "display.sound_notifications", "bool"),
+        ]
+        if adv:
+            display_fields.extend([
                 ("Colored Output", "display.colored_output", "bool"),
-                ("Sound Notifications", "display.sound_notifications", "bool"),
                 ("Show Progress Bars", "display.show_progress_bars", "bool"),
-            ]),
-            ("Game", [
+            ])
+        sections.append(("Display", display_fields))
+
+        # Game Section (Advanced Only)
+        if adv:
+            sections.append(("Game Window & Detection", [
                 ("Detection Timeout", "game.detection_timeout", "float"),
                 ("Click Precision", "game.click_precision", "int"),
-                ("Template Matching Threshold", "game.template_matching_threshold", "float"),
-            ]),
-        ]
+                ("Matching Threshold", "game.template_matching_threshold", "float"),
+            ]))
 
+        # Render sections
         for section_name, fields in sections:
             self._section_label(inner, row, section_name)
             row += 1
@@ -907,7 +971,7 @@ class BotGUI:
                 self._config_vars[key] = (var, ftype)
                 row += 1
 
-        ttk.Button(inner, text="Save Config", style="Accent.TButton",
+        ttk.Button(inner, text="Save Configuration", style="Accent.TButton",
                    command=self._config_save).grid(row=row, column=0, columnspan=2, pady=16, padx=8, sticky="w")
 
     def _config_save(self):
@@ -928,45 +992,8 @@ class BotGUI:
         self.controller.config.save_config()
         messagebox.showinfo("Saved", "Configuration saved.", parent=self.root)
 
-    def _build_logs_tab(self):
-        filter_row = ttk.Frame(self._tab_logs)
-        filter_row.pack(fill="x", padx=8, pady=(8, 4))
-
-        ttk.Label(filter_row, text="Level:").pack(side="left", padx=(0, 4))
-
-        self._log_filter_btns = {}
-        for lvl in ("ALL", "INFO", "WARNING", "ERROR"):
-            btn = ttk.Button(filter_row, text=lvl, width=8,
-                             command=lambda l=lvl: self._set_log_filter(l))
-            btn.pack(side="left", padx=2)
-            self._log_filter_btns[lvl] = btn
-
-        self._set_log_filter("ALL")
-
-        ttk.Button(filter_row, text="Clear", command=self._log_clear).pack(side="left", padx=8)
-        ttk.Checkbutton(filter_row, text="Auto-scroll", variable=self._auto_scroll).pack(side="left", padx=4)
-
-        log_frame = ttk.Frame(self._tab_logs)
-        log_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-
-        self._log_text = scrolledtext.ScrolledText(
-            log_frame, bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
-            relief="flat", font=("Consolas", 9), state="disabled",
-            wrap="word"
-        )
-        self._log_text.pack(fill="both", expand=True)
-        self._log_text.tag_config("INFO", foreground=TEXT)
-        self._log_text.tag_config("WARNING", foreground=YELLOW)
-        self._log_text.tag_config("ERROR", foreground=RED)
-        self._log_text.tag_config("DEBUG", foreground=SUBTEXT)
-
     def _set_log_filter(self, level):
         self._log_level_filter = level
-        for lvl, btn in self._log_filter_btns.items():
-            if lvl == level:
-                btn.configure(style="Accent.TButton")
-            else:
-                btn.configure(style="TButton")
 
     def _log_clear(self):
         self._log_text.config(state="normal")

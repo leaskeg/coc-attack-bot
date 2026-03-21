@@ -200,6 +200,11 @@ class AttackPlayer:
             self.is_playing = False
             print(f"\nPlayback completed")
     
+    def _human_move_to(self, x: int, y: int) -> None:
+        """Move mouse with human-like curve and speed"""
+        duration = random.uniform(0.1, 0.3)
+        pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeOutQuad)
+
     def _execute_action(self, action: Dict, recorded_bounds: Optional[Tuple] = None, action_index: int = -1) -> None:
         """Execute a single action"""
         action_type = action.get('type', '')
@@ -217,17 +222,30 @@ class AttackPlayer:
                     matched = self._find_troop_in_bar(action['troop_icon'])
                     if matched:
                         x, y = matched
+                        # Move to troop icon before clicking
+                        self._human_move_to(x, y)
                         print(f"  CLICK {label} [TROOP MATCHED] t={timestamp:.2f}s  matched=({x}, {y})")
                     else:
                         print(f"  CLICK {label} [TROOP FALLBACK] t={timestamp:.2f}s  using recorded=({x}, {y})")
 
                 if self.enable_click_variation:
                     final_x, final_y = self._add_coordinate_variance(x, y, self.click_variance_pixels)
+                    
+                    # Human-like micro-movement before regular clicks
+                    if random.random() < 0.3:
+                        self._human_move_to(final_x, final_y)
+                    
                     print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})")
-                    pyautogui.click(final_x, final_y)
+                    
+                    # Randomized click down-time
+                    pyautogui.mouseDown(final_x, final_y)
+                    time.sleep(random.uniform(0.07, 0.18))
+                    pyautogui.mouseUp()
                 else:
                     print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  final=({x}, {y})")
-                    pyautogui.click(x, y)
+                    pyautogui.mouseDown(x, y)
+                    time.sleep(random.uniform(0.07, 0.18))
+                    pyautogui.mouseUp()
             elif action_type == 'move':
                 pass
             elif action_type == 'delay':
