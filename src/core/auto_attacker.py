@@ -273,10 +273,10 @@ class AutoAttacker:
             self.logger.info(f"🎯 Starting attack with session: {session_name}")
             
             if not self.attack_player.play_attack(session_name, speed=1.0):
-                self.logger.error("Failed to start attack recording")
+                self.logger.error(f"Failed to start attack playback for session: {session_name}")
                 return False
             
-            self.logger.info("✅ Attack recording started - troops deploying...")
+            self.logger.info("✅ Attack playback started - troops deploying...")
             
             # Wait for playback to finish before starting the battle timer
             while self.attack_player.is_playing and self.is_running:

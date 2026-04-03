@@ -109,9 +109,11 @@ class ConfigValidator:
         return errors
     
     def _validate_attack_sessions(self) -> List[str]:
-        """Check if attack sessions are configured"""
+        """Check if attack sessions are configured and files exist"""
+        import os
         errors = []
         attack_sessions = self.config.get('auto_attacker.attack_sessions', {})
+        recordings_dir = self.config.get('directories.recordings', 'recordings')
         
         if not attack_sessions or not any(attack_sessions.values()):
             errors.append("❌ No attack variations configured. Run 'Setup Automation' first.")
@@ -120,6 +122,11 @@ class ConfigValidator:
         for attack_name, variations in attack_sessions.items():
             if not variations or not isinstance(variations, list):
                 errors.append(f"❌ Attack group '{attack_name}' has no variations")
+            else:
+                for variation in variations:
+                    filepath = os.path.join(recordings_dir, f"{variation}.json")
+                    if not os.path.exists(filepath):
+                        errors.append(f"❌ Missing session file for '{attack_name}': {variation}.json")
         
         return errors
     

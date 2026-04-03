@@ -19,8 +19,8 @@ class BotController:
         self.screen_capture = ScreenCapture()
         self.coordinate_mapper = CoordinateMapper()
         self.config_validator = ConfigValidator(self.config, self.coordinate_mapper)
-        self.attack_recorder = AttackRecorder()
-        self.attack_player = AttackPlayer()
+        self.attack_recorder = AttackRecorder(logger=self.logger)
+        self.attack_player = AttackPlayer(logger=self.logger)
         self.ai_analyzer = AIAnalyzer(
             api_key=self.config.get("ai_analyzer.google_gemini_api_key", ""),
             logger=self.logger

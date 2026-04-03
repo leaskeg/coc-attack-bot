@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 from .attack_recorder import AttackRecorder
 from .screen_capture import ScreenCapture
 from ..utils.config import Config
+from ..utils.logger import Logger
 from ..utils.screen_utils import is_coordinate_on_screen, get_virtual_screen_size
 
 class AttackPlayer:
@@ -51,7 +52,7 @@ class AttackPlayer:
 
             return None
         except Exception as e:
-            print(f"Template matching failed: {e}")
+            self.logger.error(f"Template matching failed: {e}")
             return None
 
     def _adjust_coordinates_for_window(self, x: int, y: int, recorded_bounds: Optional[Tuple] = None) -> Tuple[int, int]:
@@ -75,8 +76,9 @@ class AttackPlayer:
         
         return (adjusted_x, adjusted_y)
     
-    def __init__(self):
-        self.attack_recorder = AttackRecorder()
+    def __init__(self, logger: Optional[Logger] = None):
+        self.logger = logger or Logger()
+        self.attack_recorder = AttackRecorder(logger=self.logger)
         self.screen_capture = ScreenCapture()
         self.config = Config()
         self.is_playing = False
@@ -86,8 +88,8 @@ class AttackPlayer:
         self.enable_click_variation = self.config.get("automation.enable_click_variation", True)
         self.click_variance_pixels = self.config.get("automation.click_variance_pixels", 5)
         
-        print("Player initialized")
-        print(f"Variation: {'enabled' if self.enable_click_variation else 'disabled'} (±{self.click_variance_pixels} pixels)")
+        self.logger.info("Player initialized")
+        self.logger.info(f"Variation: {'enabled' if self.enable_click_variation else 'disabled'} (±{self.click_variance_pixels} pixels)")
         print("Controls:")
         print("  F8 - Pause/Resume")
         print("  F9 - Stop")
@@ -96,25 +98,25 @@ class AttackPlayer:
     def play_attack(self, session_name: str, speed: float = 1.0) -> bool:
         """Play back a recorded attack session"""
         if self.is_playing:
-            print("Already playing an attack")
+            self.logger.warning("Already playing an attack")
             return False
         
         # Load the recording
         recording = self.attack_recorder.load_recording(session_name)
         if not recording:
-            print(f"Could not load recording: {session_name}")
+            self.logger.error(f"Could not load recording: {session_name}")
             return False
         
         self.current_playback = recording
         self.playback_speed = speed
         self.is_playing = True
         
-        print(f"\n=== PLAYING ATTACK SESSION: {session_name} ===")
-        print(f"Duration: {recording.get('duration', 0):.1f} seconds")
-        print(f"Actions: {len(recording.get('actions', []))}")
-        print(f"Speed: {speed}x")
-        print("\nStarting playback in 3 seconds...")
-        print("Press F8 to pause, F9 to stop, ESC for emergency stop")
+        self.logger.info(f"=== PLAYING ATTACK SESSION: {session_name} ===")
+        self.logger.info(f"Duration: {recording.get('duration', 0):.1f} seconds")
+        self.logger.info(f"Actions: {len(recording.get('actions', []))}")
+        self.logger.info(f"Speed: {speed}x")
+        self.logger.info("Starting playback in 3 seconds...")
+        self.logger.info("Press F8 to pause, F9 to stop, ESC for emergency stop")
         
         time.sleep(3)
         
@@ -132,10 +134,10 @@ class AttackPlayer:
     def stop_playback(self) -> None:
         """Stop the current playback"""
         if not self.is_playing:
-            print("No playback active")
+            self.logger.warning("No playback active")
             return
         
-        print("Stopping playback")
+        self.logger.info("Stopping playback")
         self.is_playing = False
         
         if self.playback_thread:
@@ -153,17 +155,17 @@ class AttackPlayer:
                     break
                 
                 if keyboard.is_pressed('esc'):
-                    print("\nEmergency stop activated")
+                    self.logger.warning("Emergency stop activated")
                     break
                 
                 if keyboard.is_pressed('f9'):
-                    print("\nPlayback stopped by user")
+                    self.logger.info("Playback stopped by user")
                     break
                 
                 if keyboard.is_pressed('f8'):
                     paused = not paused
                     status = "paused" if paused else "resumed"
-                    print(f"\nPlayback {status}")
+                    self.logger.info(f"Playback {status}")
                     
                     while keyboard.is_pressed('f8'):
                         time.sleep(0.1)
@@ -172,7 +174,7 @@ class AttackPlayer:
                     time.sleep(0.1)
                     if keyboard.is_pressed('f8'):
                         paused = False
-                        print("Playback resumed")
+                        self.logger.info("Playback resumed")
                         while keyboard.is_pressed('f8'):
                             time.sleep(0.1)
                 
@@ -191,14 +193,14 @@ class AttackPlayer:
                 
                 if (i + 1) % log_interval == 0 or i == len(actions) - 1:
                     progress = (i + 1) / len(actions) * 100
-                    print(f"--- Progress: {progress:.1f}% ({i + 1}/{len(actions)}) ---")
+                    self.logger.info(f"Playback Progress: {progress:.1f}% ({i + 1}/{len(actions)})")
         
         except Exception as e:
-            print(f"\nPlayback error: {e}")
+            self.logger.error(f"Playback error: {e}")
         
         finally:
             self.is_playing = False
-            print(f"\nPlayback completed")
+            self.logger.info("Playback completed")
     
     def _human_move_to(self, x: int, y: int) -> None:
         """Move mouse with human-like curve and speed"""
@@ -224,9 +226,9 @@ class AttackPlayer:
                         x, y = matched
                         # Move to troop icon before clicking
                         self._human_move_to(x, y)
-                        print(f"  CLICK {label} [TROOP MATCHED] t={timestamp:.2f}s  matched=({x}, {y})")
+                        self.logger.debug(f"  CLICK {label} [TROOP MATCHED] t={timestamp:.2f}s  matched=({x}, {y})")
                     else:
-                        print(f"  CLICK {label} [TROOP FALLBACK] t={timestamp:.2f}s  using recorded=({x}, {y})")
+                        self.logger.debug(f"  CLICK {label} [TROOP FALLBACK] t={timestamp:.2f}s  using recorded=({x}, {y})")
 
                 if self.enable_click_variation:
                     final_x, final_y = self._add_coordinate_variance(x, y, self.click_variance_pixels)
@@ -235,14 +237,14 @@ class AttackPlayer:
                     if random.random() < 0.3:
                         self._human_move_to(final_x, final_y)
                     
-                    print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})")
+                    self.logger.debug(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})")
                     
                     # Randomized click down-time
                     pyautogui.mouseDown(final_x, final_y)
                     time.sleep(random.uniform(0.07, 0.18))
                     pyautogui.mouseUp()
                 else:
-                    print(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  final=({x}, {y})")
+                    self.logger.debug(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  final=({x}, {y})")
                     pyautogui.mouseDown(x, y)
                     time.sleep(random.uniform(0.07, 0.18))
                     pyautogui.mouseUp()
@@ -251,16 +253,16 @@ class AttackPlayer:
             elif action_type == 'delay':
                 duration = action.get('duration', 1.0) / self.playback_speed
                 randomized_duration = self._add_random_delay(duration, variance=0.15)
-                print(f"  DELAY {label} t={timestamp:.2f}s  duration={randomized_duration:.2f}s")
+                self.logger.debug(f"  DELAY {label} t={timestamp:.2f}s  duration={randomized_duration:.2f}s")
                 time.sleep(randomized_duration)
             elif action_type == 'drag':
                 start_x = action.get('start_x', x)
                 start_y = action.get('start_y', y)
-                print(f"  DRAG  {label} t={timestamp:.2f}s  from=({start_x}, {start_y})  to=({x}, {y})")
+                self.logger.debug(f"  DRAG  {label} t={timestamp:.2f}s  from=({start_x}, {start_y})  to=({x}, {y})")
                 pyautogui.drag(x - start_x, y - start_y)
         
         except Exception as e:
-            print(f"Error executing action {action_type} at ({x}, {y}): {e}")
+            self.logger.error(f"Error executing action {action_type} at ({x}, {y}): {e}")
     
     def validate_recording(self, session_name: str) -> Dict[str, any]:
         """Validate a recording before playback (supports multi-monitor)"""
@@ -298,13 +300,13 @@ class AttackPlayer:
         """Show a preview of the recording actions"""
         recording = self.attack_recorder.load_recording(session_name)
         if not recording:
-            print(f"Recording not found: {session_name}")
+            self.logger.error(f"Recording not found: {session_name}")
             return
         
         actions = recording.get('actions', [])
         
-        print(f"\n=== RECORDING PREVIEW: {session_name} ===")
-        print(f"Duration: {recording.get('duration', 0):.1f} seconds")
+        self.logger.info(f"=== RECORDING PREVIEW: {session_name} ===")
+        self.logger.info(f"Duration: {recording.get('duration', 0):.1f} seconds")
         print(f"Total actions: {len(actions)}")
         
         # Show action summary
