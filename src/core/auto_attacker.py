@@ -277,6 +277,16 @@ class AutoAttacker:
                 return False
             
             self.logger.info("✅ Attack recording started - troops deploying...")
+            
+            # Wait for playback to finish before starting the battle timer
+            while self.attack_player.is_playing and self.is_running:
+                time.sleep(1.0)
+            
+            if not self.is_running:
+                return False
+                
+            self.logger.info("✅ Deployment completed - troops active!")
+            
             base_wait = get_varied_delay_range(battle_min, battle_max, variance=0.15)
             self.logger.info(f"⏳ Waiting {base_wait/60:.1f} minutes for battle completion...")
             time.sleep(base_wait)
@@ -497,6 +507,10 @@ class AutoAttacker:
         """Return to home base after battle completion"""
         coords = self.coordinate_mapper.get_coordinates()
         
+        # Stop playback if it's still running for some reason
+        if self.attack_player.is_playing:
+            self.attack_player.stop_playback()
+            
         self.logger.info("🏠 Returning to home base...")
         
         if 'return_home' in coords:
@@ -505,7 +519,7 @@ class AutoAttacker:
             x, y = home_coord['x'], home_coord['y']
             self.logger.info(f"Clicking return_home at ({x}, {y})")
             self._click_at(x, y, jitter_pixels=5)
-            return_wait = self.config.get('auto_attacker.return_home_wait', 5.5)
+            return_wait = self.config.get('auto_attacker.return_home_wait', 15.5)
             time.sleep(add_random_delay(return_wait, variance=0.4))
         else:
             self.logger.warning("return_home button not mapped")
