@@ -320,6 +320,58 @@ Replace the 0 values with actual numbers (no commas, no spaces). Example: use 50
             "error": True
         }
     
+    def analyze_base_legend(self, screenshot_path: str) -> Optional[Dict]:
+        """
+        Analyze an enemy base in Legend League context.
+        Focus is on attack strategy and estimated stars, NOT loot.
+        
+        Returns:
+            Dict with difficulty, strategy, estimated_stars, and reasoning
+        """
+        try:
+            self.logger.info(f"🏆 [LEGEND] AI analyzing base for strategy: {screenshot_path}")
+            image_data = self._encode_image(screenshot_path)
+            if not image_data:
+                return None
+            prompt = self._create_legend_analysis_prompt()
+            response = self._send_gemini_request(image_data, prompt)
+            if response:
+                self.logger.info(f"🏆 [LEGEND] AI strategy: {response.get('strategy', 'N/A')} | "
+                                 f"Est. stars: {response.get('estimated_stars', 'N/A')}")
+            return response
+        except Exception as e:
+            self.logger.error(f"[LEGEND] AI analysis error: {e}")
+            return None
+
+    def _create_legend_analysis_prompt(self) -> str:
+        """Prompt for Legend League base analysis - strategy and stars, not loot"""
+        return """
+You are an expert Clash of Clans Legend League player analyzing an opponent base.
+
+GOAL: Assess how hard this base is to 3-star and recommend an attack strategy.
+
+INSTRUCTIONS:
+1. Identify the Town Hall level by looking at the Town Hall building.
+2. Identify the base layout type (ring base, anti-3-star, anti-2-star, turtle, etc.)
+3. Assess key defensive threats (Scattershots, Eagle Artillery, Inferno Towers, Monolith, etc.)
+4. Estimate how many stars a strong army (e.g. Zap Witches, Super Archers, Blizzard) would get.
+5. Suggest the best general attack strategy entry point (north, south, east, west, or funnel through corner).
+
+Respond in this exact JSON format:
+{
+    "townhall_level": 0,
+    "difficulty": "Easy/Medium/Hard",
+    "base_type": "Brief layout description (e.g. ring base, compartment, anti-3-star)",
+    "key_threats": ["list", "of", "major", "defenses"],
+    "estimated_stars": 0,
+    "strategy": "Brief strategy description",
+    "entry_point": "north/south/east/west/corner",
+    "reasoning": "Brief explanation"
+}
+
+Use only integers for townhall_level and estimated_stars. estimated_stars must be 0, 1, 2, or 3.
+"""
+
     def test_connection(self) -> bool:
         """Test connection to Gemini API"""
         try:

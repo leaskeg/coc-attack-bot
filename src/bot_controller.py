@@ -58,7 +58,13 @@ class BotController:
     
     def start_coordinate_mapping(self) -> None:
         self.logger.info("Starting coordinate mapping")
-        required_buttons = self.get_required_buttons()
+        mode = self.get_attack_mode()
+        if mode == 'legend':
+            required_buttons = self.get_required_buttons_legend()
+            self.logger.info("Using Legend League button mapping")
+        else:
+            required_buttons = self.get_required_buttons()
+            self.logger.info("Using Farm mode button mapping")
         self.coordinate_mapper.start_mapping(required_buttons)
     
     def start_attack_recording(self, session_name: str) -> None:
@@ -109,9 +115,21 @@ class BotController:
         """Check if auto attack is running"""
         return self.auto_attacker.is_running
     
+    def get_attack_mode(self) -> str:
+        """Return current attack mode: 'farm' or 'legend'"""
+        return self.auto_attacker.get_attack_mode()
+
+    def set_attack_mode(self, mode: str) -> bool:
+        """Switch attack mode ('farm' or 'legend')"""
+        return self.auto_attacker.set_attack_mode(mode)
+
     def get_required_buttons(self) -> Dict[str, str]:
         """Get list of required button mappings for automation"""
         return self.auto_attacker.configure_buttons()
+
+    def get_required_buttons_legend(self) -> Dict[str, str]:
+        """Get list of required button mappings for Legend League mode"""
+        return self.auto_attacker.configure_buttons_legend()
     
     def list_recorded_attacks(self) -> List[str]:
         """Get list of all recorded attack sessions"""

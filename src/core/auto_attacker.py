@@ -2,7 +2,7 @@ import time
 import random
 import threading
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pyautogui
 import keyboard
 
@@ -12,7 +12,9 @@ from .coordinate_mapper import CoordinateMapper
 from .ai_analyzer import AIAnalyzer
 from ..utils.logger import Logger
 from ..utils.config import Config
-from ..utils.timing import add_random_delay, add_coordinate_variance, add_human_like_hesitation, get_varied_delay_range
+from ..utils.timing import (add_random_delay, add_coordinate_variance,
+                            add_human_like_hesitation, get_varied_delay_range,
+                            human_move_duration, pixel_distance)
 
 class AutoAttacker:
     
@@ -38,7 +40,10 @@ class AutoAttacker:
         
         self.attack_sessions = self.config.get('auto_attacker.attack_sessions', {})
         self.max_search_attempts = self.config.get('auto_attacker.max_search_attempts', 10)
-        
+
+        self._legend_attacks_today = 0
+        self._legend_day_reset = None
+
         self.logger.info("Auto Attacker initialized")
         self.logger.info("Emergency stop: Ctrl+Alt+S")
     
@@ -48,12 +53,36 @@ class AutoAttacker:
         x = max(0, min(x, screen_width - 1))
         y = max(0, min(y, screen_height - 1))
         return (x, y)
-    
+
+    def _natural_move_to(self, x: int, y: int) -> None:
+        """
+        Move mouse to (x, y) with distance-aware speed, random tween, and
+        occasional micro-overshoot — shared by _click_at and _click_with_jitter.
+        """
+        cx, cy = pyautogui.position()
+        dist = pixel_distance(cx, cy, x, y)
+        dur = human_move_duration(dist)
+        tweens = [pyautogui.easeOutQuad, pyautogui.easeInOutQuad, pyautogui.linear]
+        tween = random.choices(tweens, weights=[0.55, 0.35, 0.10], k=1)[0]
+
+        if dist > 120 and random.random() < 0.08:
+            ox = x + random.randint(-9, 9)
+            oy = y + random.randint(-9, 9)
+            pyautogui.moveTo(ox, oy, duration=dur * 0.82, tween=tween)
+            time.sleep(random.uniform(0.02, 0.06))
+            pyautogui.moveTo(x, y, duration=random.uniform(0.04, 0.09),
+                             tween=pyautogui.easeOutQuad)
+        else:
+            pyautogui.moveTo(x, y, duration=dur, tween=tween)
+
     def _click_with_jitter(self, x: int, y: int, jitter_pixels: int = 5) -> None:
-        """Click with slight human-like jitter"""
+        """Click with natural mouse movement and slight coordinate jitter"""
         adjusted_x, adjusted_y = add_coordinate_variance(x, y, jitter_pixels)
         adjusted_x, adjusted_y = self._verify_click_position(adjusted_x, adjusted_y)
-        pyautogui.click(adjusted_x, adjusted_y)
+        self._natural_move_to(adjusted_x, adjusted_y)
+        pyautogui.mouseDown(adjusted_x, adjusted_y)
+        time.sleep(random.uniform(0.06, 0.17))
+        pyautogui.mouseUp()
     
     def add_attack_session(self, attack_name: str, variation_name: str) -> bool:
         """Add an attack variation to a group"""
@@ -133,14 +162,12 @@ class AutoAttacker:
         self.logger.info("Auto attacker stopped")
     
     def _click_at(self, x: int, y: int, jitter_pixels: int = 5) -> None:
-        """Perform a human-like click with jitter and variable down-time"""
+        """Perform a human-like click: natural arc to target, then press+release"""
         adjusted_x, adjusted_y = add_coordinate_variance(x, y, jitter_pixels)
         adjusted_x, adjusted_y = self._verify_click_position(adjusted_x, adjusted_y)
-        
-        # Randomize duration between mouse down and up
-        press_duration = random.uniform(0.08, 0.22)
+        self._natural_move_to(adjusted_x, adjusted_y)
         pyautogui.mouseDown(adjusted_x, adjusted_y)
-        time.sleep(press_duration)
+        time.sleep(random.uniform(0.07, 0.20))
         pyautogui.mouseUp()
 
     def _park_mouse(self) -> None:
@@ -166,74 +193,313 @@ class AutoAttacker:
             time.sleep(random.uniform(0.5, 2.0))
             pyautogui.moveRel(random.randint(-10, 10), random.randint(-10, 10), duration=0.3)
 
-    def _auto_attack_loop(self) -> None:
-        """Main automation loop"""
+    def get_attack_mode(self) -> str:
+        """Return current attack mode: 'farm' or 'legend'"""
+        return self.config.get('attack_mode', 'farm').lower()
+
+    def set_attack_mode(self, mode: str) -> bool:
+        """Switch attack mode ('farm' or 'legend')"""
+        mode = mode.lower()
+        if mode not in ('farm', 'legend'):
+            self.logger.error(f"Unknown attack mode: {mode}. Use 'farm' or 'legend'.")
+            return False
+        self.config.set('attack_mode', mode)
+        self.logger.info(f"Attack mode set to: {mode.upper()}")
+        return True
+
+    def _legend_reset_daily_counter_if_needed(self) -> None:
+        """Reset the daily attack counter when a new UTC day starts"""
+        now_utc = datetime.now(timezone.utc)
+        today = now_utc.date()
+        if self._legend_day_reset != today:
+            self._legend_attacks_today = 0
+            self._legend_day_reset = today
+            self.logger.info("📅 Legend League daily attack counter reset")
+
+    def _legend_window_is_open(self) -> bool:
+        """Check whether the Legend League attack window is currently open (UTC)"""
+        window_start_str = self.config.get('legend_league.window_start_utc', '00:00')
+        window_end_str = self.config.get('legend_league.window_end_utc', '23:59')
         try:
-            while self.is_running:
-                # Check emergency stop
-                if keyboard.is_pressed('ctrl+alt+s'):
-                    self.logger.warning("Emergency stop activated!")
-                    break
-                
-                self.logger.info("🎯 Starting new attack cycle...")
-                
-                # Execute attack sequence
-                if self._execute_attack_sequence():
-                    self.stats['successful_attacks'] += 1
-                    self.logger.info("✅ Attack sequence completed successfully")
-                else:
-                    self.stats['failed_attacks'] += 1
-                    self.logger.warning("❌ Attack sequence failed")
-                
-                self.stats['total_attacks'] += 1
-                self.stats['last_attack_time'] = datetime.now()
-                
-                # Cleanup old screenshots every 10 attacks
-                if self.stats['total_attacks'] % 10 == 0:
-                    self.screen_capture.cleanup_old_screenshots(max_age_hours=24)
-                
-                # Check for a 'Long Break' (simulating human getting distracted or tired)
-                # Chance: 15% every attack after the 3rd
-                if self.is_running and self.stats['total_attacks'] > 3 and random.random() < 0.15:
-                    long_break = random.uniform(180, 480) # 3 to 8 minutes
-                    self.logger.info(f"☕ Taking a long break (simulating human)... {long_break/60:.1f} minutes")
-                    self._park_mouse()
-                    time.sleep(long_break)
-                    
-                # Short break between attacks (more variable)
-                if self.is_running:
-                    next_min = self.config.get('auto_attacker.next_attempt_delay', 10)
-                    next_max = self.config.get('auto_attacker.next_attempt_delay_max', 35)
-                    randomized_delay = get_varied_delay_range(next_min, next_max, variance=0.4)
-                    self.logger.info(f"⏳ Waiting {randomized_delay:.1f} seconds before next attack...")
-                    # Park mouse during shorter wait too
-                    if randomized_delay > 15:
-                        self._park_mouse()
-                    time.sleep(randomized_delay)
-                    add_human_like_hesitation(threshold=0.2)
-                    
+            now_utc = datetime.now(timezone.utc)
+            sh, sm = (int(p) for p in window_start_str.split(':'))
+            eh, em = (int(p) for p in window_end_str.split(':'))
+            window_start = now_utc.replace(hour=sh, minute=sm, second=0, microsecond=0)
+            window_end   = now_utc.replace(hour=eh, minute=em, second=59, microsecond=0)
+            return window_start <= now_utc <= window_end
+        except Exception as e:
+            self.logger.warning(f"Could not parse legend window times: {e} - assuming open")
+            return True
+
+    def _legend_wait_for_window(self) -> bool:
+        """Block until the attack window opens; returns False if bot stopped"""
+        buffer_minutes = int(self.config.get('legend_league.pre_window_buffer_minutes', 2))
+        window_start_str = self.config.get('legend_league.window_start_utc', '00:00')
+        try:
+            sh, sm = (int(p) for p in window_start_str.split(':'))
+        except Exception:
+            sh, sm = 0, 0
+
+        while self.is_running:
+            if self._legend_window_is_open():
+                return True
+            now_utc = datetime.now(timezone.utc)
+            window_start = now_utc.replace(hour=sh, minute=sm, second=0, microsecond=0)
+            if window_start < now_utc:
+                window_start += timedelta(days=1)
+            secs_until = (window_start - now_utc).total_seconds() - buffer_minutes * 60
+            if secs_until <= 0:
+                return True
+            wake_in = min(secs_until, 60)
+            self.logger.info(f"⏰ Legend window opens in {secs_until/60:.1f} min - sleeping {wake_in:.0f}s...")
+            self._park_mouse()
+            time.sleep(wake_in)
+        return False
+
+    def _execute_legend_attack_sequence(self) -> bool:
+        """Execute one Legend League attack (no loot check, fixed opponent)"""
+        try:
+            self._escape_menu()
+
+            coords = self.coordinate_mapper.get_coordinates()
+
+            for required in ('ranked_battle_button', 'legend_find_match', 'legend_attack_button', 'legend_confirm_attack', 'legend_return_home'):
+                if required not in coords:
+                    self.logger.error(f"Required button not mapped for Legend mode: '{required}'")
+                    return False
+
+            rb_coord = coords['ranked_battle_button']
+            self.logger.info(f"1️⃣ [LEGEND] Clicking Ranked Battle button at ({rb_coord['x']}, {rb_coord['y']})")
+            add_human_like_hesitation(threshold=0.15)
+            self._click_at(rb_coord['x'], rb_coord['y'], jitter_pixels=6)
+            time.sleep(add_random_delay(2.5, variance=0.4))
+
+            fm_coord = coords['legend_find_match']
+            self.logger.info(f"2️⃣ [LEGEND] Clicking Find a Match button at ({fm_coord['x']}, {fm_coord['y']})")
+            add_human_like_hesitation(threshold=0.15)
+            self._click_at(fm_coord['x'], fm_coord['y'], jitter_pixels=6)
+            self.logger.info("⏳ [LEGEND] Waiting for match to be found...")
+            time.sleep(add_random_delay(8.0, variance=0.2))
+
+            if 'legend_opponent_select' in coords:
+                op_coord = coords['legend_opponent_select']
+                self.logger.info(f"3️⃣ [LEGEND] Selecting next opponent at ({op_coord['x']}, {op_coord['y']})")
+                add_human_like_hesitation(threshold=0.12)
+                self._click_at(op_coord['x'], op_coord['y'], jitter_pixels=8)
+                time.sleep(add_random_delay(2.0, variance=0.35))
+
+            if self.config.get('legend_league.ai_strategy_enabled', False):
+                screenshot_path = self.screen_capture.capture_game_screen()
+                if screenshot_path:
+                    self.logger.info("🤖 [LEGEND] AI analyzing base difficulty...")
+                    analysis = self.ai_analyzer.analyze_base_legend(screenshot_path)
+                    if analysis:
+                        self.logger.info(f"🧠 [LEGEND] Strategy: {analysis.get('strategy', 'N/A')} | "
+                                         f"Difficulty: {analysis.get('difficulty', 'N/A')} | "
+                                         f"Est. Stars: {analysis.get('estimated_stars', 'N/A')}")
+
+            atk_coord = coords['legend_attack_button']
+            self.logger.info(f"4️⃣ [LEGEND] Clicking Attack button at ({atk_coord['x']}, {atk_coord['y']})")
+            add_human_like_hesitation(threshold=0.15)
+            self._click_at(atk_coord['x'], atk_coord['y'], jitter_pixels=6)
+            time.sleep(add_random_delay(3.0, variance=0.2))
+
+            cfg_coord = coords['legend_confirm_attack']
+            self.logger.info(f"5️⃣ [LEGEND] Confirming attack at ({cfg_coord['x']}, {cfg_coord['y']})")
+            add_human_like_hesitation(threshold=0.15)
+            self._click_at(cfg_coord['x'], cfg_coord['y'], jitter_pixels=6)
+            time.sleep(add_random_delay(4.0, variance=0.2))
+
+            if not self.is_running:
+                return False
+
+            session_name = self._get_next_attack_session()
+            self.logger.info(f"6️⃣ [LEGEND] Deploying troops with session: {session_name}")
+
+            attack_start_time = time.time()
+            if not self.attack_player.play_attack(session_name, speed=1.0):
+                self.logger.error(f"[LEGEND] Failed to start attack playback: {session_name}")
+                return False
+
+            while self.attack_player.is_playing:
+                time.sleep(0.5)
+                if not self.is_running:
+                    self.logger.warning("[LEGEND] Auto attacker stopped during playback")
+                    return False
+
+            self.logger.info("✅ [LEGEND] Deployment complete - waiting for battle...")
+            battle_duration = 190
+            elapsed = time.time() - attack_start_time
+            battle_wait = max(0, battle_duration - elapsed)
+            self.logger.info(f"⏳ [LEGEND] {elapsed:.0f}s elapsed since first troop - waiting {battle_wait:.0f}s more for battle completion...")
+            time.sleep(battle_wait)
+
+            home_coord = coords['legend_return_home']
+            self.logger.info(f"7️⃣ [LEGEND] Returning home at ({home_coord['x']}, {home_coord['y']})")
+            add_human_like_hesitation(threshold=0.2)
+            self._click_at(home_coord['x'], home_coord['y'], jitter_pixels=5)
+            return_wait = self.config.get('auto_attacker.return_home_wait', 15.5)
+            time.sleep(add_random_delay(return_wait, variance=0.4))
+
+            self._legend_attacks_today += 1
+            self.logger.info(f"🏆 [LEGEND] Attack #{self._legend_attacks_today} complete")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"[LEGEND] Attack sequence failed: {e}")
+            return False
+
+    def _auto_attack_loop(self) -> None:
+        """Main automation loop - dispatches to farm or legend mode"""
+        try:
+            mode = self.get_attack_mode()
+            if mode == 'legend':
+                self._auto_attack_loop_legend()
+            else:
+                self._auto_attack_loop_farm()
         except Exception as e:
             self.logger.error(f"Auto attack loop error: {e}")
         finally:
             self.is_running = False
+
+    def _auto_attack_loop_legend(self) -> None:
+        """Legend League automation loop - up to 8 attacks per day in the window"""
+        daily_limit = int(self.config.get('legend_league.daily_attack_limit', 8))
+        wait_for_window = self.config.get('legend_league.wait_for_window', True)
+        skip_if_closed = self.config.get('legend_league.skip_if_window_closed', True)
+        between_min = self.config.get('legend_league.between_attack_delay_min', 10)
+        between_max = self.config.get('legend_league.between_attack_delay_max', 30)
+
+        self._legend_reset_daily_counter_if_needed()
+
+        while self.is_running:
+            if keyboard.is_pressed('ctrl+alt+s'):
+                self.logger.warning("Emergency stop activated!")
+                break
+
+            self._legend_reset_daily_counter_if_needed()
+
+            if self._legend_attacks_today >= daily_limit:
+                self.logger.info(f"🏆 [LEGEND] All {daily_limit} attacks used for today. Waiting for new day...")
+                self._park_mouse()
+                time.sleep(300)
+                continue
+
+            if not self._legend_window_is_open():
+                if skip_if_closed:
+                    if wait_for_window:
+                        if not self._legend_wait_for_window():
+                            break
+                    else:
+                        self.logger.info("⏰ [LEGEND] Attack window is closed. Stopping.")
+                        break
+
+            self.logger.info(f"🏆 [LEGEND] Starting attack {self._legend_attacks_today + 1}/{daily_limit}")
+
+            if self._execute_legend_attack_sequence():
+                self.stats['successful_attacks'] += 1
+                self.logger.info("✅ [LEGEND] Attack completed successfully")
+            else:
+                self.stats['failed_attacks'] += 1
+                self.logger.warning("❌ [LEGEND] Attack failed")
+
+            self.stats['total_attacks'] += 1
+            self.stats['last_attack_time'] = datetime.now()
+
+            if self.stats['total_attacks'] % 10 == 0:
+                self.screen_capture.cleanup_old_screenshots(max_age_hours=24)
+
+            if self.is_running and self._legend_attacks_today < daily_limit:
+                delay = get_varied_delay_range(between_min, between_max, variance=0.3)
+                self.logger.info(f"⏳ [LEGEND] Waiting {delay:.1f}s before next attack...")
+                if delay > 15:
+                    self._park_mouse()
+                time.sleep(delay)
+                add_human_like_hesitation(threshold=0.2)
+
+        self.logger.info("🏆 [LEGEND] Legend League session complete")
+
+    def _auto_attack_loop_farm(self) -> None:
+        """Farm (Battle) automation loop"""
+        while self.is_running:
+            if keyboard.is_pressed('ctrl+alt+s'):
+                self.logger.warning("Emergency stop activated!")
+                break
+
+            self.logger.info("🎯 Starting new attack cycle...")
+
+            if self._execute_attack_sequence():
+                self.stats['successful_attacks'] += 1
+                self.logger.info("✅ Attack sequence completed successfully")
+            else:
+                self.stats['failed_attacks'] += 1
+                self.logger.warning("❌ Attack sequence failed")
+
+            self.stats['total_attacks'] += 1
+            self.stats['last_attack_time'] = datetime.now()
+
+            if self.stats['total_attacks'] % 10 == 0:
+                self.screen_capture.cleanup_old_screenshots(max_age_hours=24)
+
+            if self.is_running and self.stats['total_attacks'] > 3 and random.random() < 0.15:
+                long_break = random.uniform(180, 480)
+                self.logger.info(f"☕ Taking a long break (simulating human)... {long_break/60:.1f} minutes")
+                self._park_mouse()
+                time.sleep(long_break)
+
+            if self.is_running:
+                next_min = self.config.get('auto_attacker.next_attempt_delay', 10)
+                next_max = self.config.get('auto_attacker.next_attempt_delay_max', 35)
+                randomized_delay = get_varied_delay_range(next_min, next_max, variance=0.4)
+                self.logger.info(f"⏳ Waiting {randomized_delay:.1f} seconds before next attack...")
+                if randomized_delay > 15:
+                    self._park_mouse()
+                time.sleep(randomized_delay)
+                add_human_like_hesitation(threshold=0.2)
     
-    def _zoom_out(self) -> None:
-        """Force zoom out to ensure full base visibility"""
-        self.logger.info("🔍 Zooming out for maximum visibility...")
-        
-        # Method 1: Ctrl + Mouse Wheel Down (Common for emulators)
-        pyautogui.keyDown('ctrl')
-        for _ in range(10):
-            pyautogui.scroll(-500)
-            time.sleep(0.05)
-        pyautogui.keyUp('ctrl')
-        
-        # Method 2: Pressing '-' key (Fallback for some emulators)
-        for _ in range(5):
-            pyautogui.press('-')
-            time.sleep(0.1)
-        
-        time.sleep(0.5)
+    def _get_window_center(self) -> Tuple[int, int]:
+        """Return the center pixel of the detected game window, or screen center as fallback"""
+        bounds = self.screen_capture.find_game_window()
+        if bounds:
+            win_x, win_y, win_w, win_h = bounds
+            return (win_x + win_w // 2, win_y + win_h // 2)
+        screen_w, screen_h = pyautogui.size()
+        return (screen_w // 2, screen_h // 2)
+
+    def _zoom_out(self, passes: int = 3, scrolls_per_pass: int = 8,
+                  scroll_amount: int = 5, settle_time: float = 0.6) -> None:
+        """
+        Zoom all the way out in the game window.
+
+        Strategy:
+          1. Move the mouse to the centre of the game window so scroll events
+             hit the correct target.
+          2. Scroll down (negative = zoom out in CoC) in multiple passes with
+             a short pause between them so the game can keep up.
+          3. Wait for the view to settle before continuing.
+
+        Args:
+            passes:           How many scroll passes to run (default 3).
+            scrolls_per_pass: Individual scroll calls per pass (default 8).
+            scroll_amount:    Scroll-wheel clicks per call (default 5).
+                              Total effective scroll = passes × scrolls_per_pass × scroll_amount.
+            settle_time:      Seconds to wait after zooming for the view to render.
+        """
+        self.logger.info("🔍 Zooming out to maximum before proceeding...")
+
+        cx, cy = self._get_window_center()
+
+        pyautogui.moveTo(cx, cy, duration=random.uniform(0.15, 0.3),
+                         tween=pyautogui.easeInOutQuad)
+
+        for pass_num in range(passes):
+            for _ in range(scrolls_per_pass):
+                pyautogui.scroll(-scroll_amount, x=cx, y=cy)
+                time.sleep(random.uniform(0.04, 0.08))
+            if pass_num < passes - 1:
+                time.sleep(random.uniform(0.18, 0.32))
+
+        time.sleep(settle_time)
 
     def _execute_attack_sequence(self) -> bool:
         """Execute the complete attack sequence following your exact process"""
@@ -278,12 +544,11 @@ class AutoAttacker:
             
             self.logger.info("✅ Attack playback started - troops deploying...")
             
-            # Wait for playback to finish before starting the battle timer
-            while self.attack_player.is_playing and self.is_running:
-                time.sleep(1.0)
-            
-            if not self.is_running:
-                return False
+            while self.attack_player.is_playing:
+                time.sleep(0.5)
+                if not self.is_running:
+                    self.logger.warning("Auto attacker stopped during playback")
+                    return False
                 
             self.logger.info("✅ Deployment completed - troops active!")
             
@@ -358,6 +623,8 @@ class AutoAttacker:
                 wait_time = add_random_delay(base_load_wait, variance=load_variance)
                 self.logger.info(f"4️⃣ Waiting {wait_time:.1f} seconds for next base to load...")
                 time.sleep(wait_time)
+
+            self._zoom_out(passes=2, scrolls_per_pass=6, scroll_amount=5, settle_time=0.5)
 
             screenshot_path = self.screen_capture.capture_game_screen()
             if not screenshot_path:
@@ -615,6 +882,16 @@ class AutoAttacker:
             'enemy_gold': 'Enemy gold display for loot checking',
             'enemy_elixir': 'Enemy elixir display for loot checking',
             'enemy_dark_elixir': 'Enemy dark elixir display for loot checking'
+        }
+
+    def configure_buttons_legend(self) -> Dict[str, str]:
+        """Get list of required button mappings for Legend League (Ranked Battle) mode"""
+        return {
+            'ranked_battle_button': '[LEGEND] The Ranked Battle card on the home screen',
+            'legend_find_match': '[LEGEND] The "Find a Match" button on Ranked Battle screen',
+            'legend_attack_button': '[LEGEND] The Attack button shown after selecting an opponent',
+            'legend_confirm_attack': '[LEGEND] The "Attack!" button in the Confirm Attack dialog',
+            'legend_return_home': '[LEGEND] Return home / Done button after battle ends',
         }
     
  

@@ -15,6 +15,7 @@ from .screen_capture import ScreenCapture
 from ..utils.config import Config
 from ..utils.logger import Logger
 from ..utils.screen_utils import is_coordinate_on_screen, get_virtual_screen_size
+from ..utils.timing import human_move_duration, pixel_distance
 
 class AttackPlayer:
     
@@ -115,10 +116,9 @@ class AttackPlayer:
         self.logger.info(f"Duration: {recording.get('duration', 0):.1f} seconds")
         self.logger.info(f"Actions: {len(recording.get('actions', []))}")
         self.logger.info(f"Speed: {speed}x")
-        self.logger.info("Starting playback in 3 seconds...")
         self.logger.info("Press F8 to pause, F9 to stop, ESC for emergency stop")
-        
-        time.sleep(3)
+
+        time.sleep(random.uniform(0.4, 0.9))
         
         recorded_bounds = recording.get('game_window_bounds')
         
@@ -144,68 +144,127 @@ class AttackPlayer:
             self.playback_thread.join(timeout=2)
     
     def _playback_loop(self, actions: List[Dict], recorded_bounds: Optional[Tuple] = None) -> None:
-        """Main playback loop"""
+        """
+        Main playback loop with drift-corrected, human-like timing.
+
+        Core principle: each action has an absolute target fire-time derived from
+        its recorded timestamp.  We sleep only for however long remains until that
+        target, so mouse-movement and click overhead are automatically absorbed
+        rather than stacked on top of the recorded gaps.
+
+        Human-like variance is still applied per-action:
+          - Short gaps (<0.4s, burst mode) → ±15% jitter, rare 0.10-0.30s micro-pause
+          - Long gaps (≥0.4s)             → ±25% jitter, 20% chance of extra 0.15-0.45s
+            pause when exiting a burst
+        """
         try:
-            last_timestamp = 0
+            schedule_start = time.time()
+            total_pause_time = 0.0
+            last_timestamp = 0.0
             paused = False
             log_interval = max(1, len(actions) // 10)
-            
+            in_burst = False
+            BURST_THRESHOLD = 0.40
+
             for i, action in enumerate(actions):
                 if not self.is_playing:
                     break
-                
+
                 if keyboard.is_pressed('esc'):
                     self.logger.warning("Emergency stop activated")
                     break
-                
+
                 if keyboard.is_pressed('f9'):
                     self.logger.info("Playback stopped by user")
                     break
-                
+
                 if keyboard.is_pressed('f8'):
                     paused = not paused
-                    status = "paused" if paused else "resumed"
-                    self.logger.info(f"Playback {status}")
-                    
+                    self.logger.info(f"Playback {'paused' if paused else 'resumed'}")
                     while keyboard.is_pressed('f8'):
                         time.sleep(0.1)
-                
-                while paused and self.is_playing:
-                    time.sleep(0.1)
-                    if keyboard.is_pressed('f8'):
-                        paused = False
-                        self.logger.info("Playback resumed")
-                        while keyboard.is_pressed('f8'):
-                            time.sleep(0.1)
-                
+
+                if paused:
+                    pause_start = time.time()
+                    while paused and self.is_playing:
+                        time.sleep(0.1)
+                        if keyboard.is_pressed('f8'):
+                            paused = False
+                            total_pause_time += time.time() - pause_start
+                            self.logger.info("Playback resumed")
+                            while keyboard.is_pressed('f8'):
+                                time.sleep(0.1)
+
                 if not self.is_playing:
                     break
-                
+
                 current_timestamp = action.get('timestamp', 0)
+                target_elapsed = current_timestamp / self.playback_speed
+
                 if i > 0:
-                    delay = (current_timestamp - last_timestamp) / self.playback_speed
-                    if delay > 0:
-                        randomized_delay = self._add_random_delay(delay, variance=0.2)
-                        time.sleep(randomized_delay)
-                
+                    raw_gap = (current_timestamp - last_timestamp) / self.playback_speed
+                    if raw_gap < BURST_THRESHOLD:
+                        in_burst = True
+                        variance_offset = raw_gap * random.uniform(-0.15, 0.15)
+                        if random.random() < 0.05:
+                            variance_offset += random.uniform(0.10, 0.30)
+                    else:
+                        if in_burst and random.random() < 0.20:
+                            variance_offset = random.uniform(0.15, 0.45)
+                        else:
+                            variance_offset = raw_gap * random.uniform(-0.25, 0.25)
+                        in_burst = False
+                    target_elapsed += variance_offset
+
+                actual_elapsed = time.time() - schedule_start - total_pause_time
+                sleep_needed = target_elapsed - actual_elapsed
+                if sleep_needed > 0:
+                    time.sleep(sleep_needed)
+
                 self._execute_action(action, recorded_bounds, action_index=i + 1)
                 last_timestamp = current_timestamp
-                
+
                 if (i + 1) % log_interval == 0 or i == len(actions) - 1:
                     progress = (i + 1) / len(actions) * 100
                     self.logger.info(f"Playback Progress: {progress:.1f}% ({i + 1}/{len(actions)})")
-        
+
         except Exception as e:
             self.logger.error(f"Playback error: {e}")
-        
+
         finally:
             self.is_playing = False
             self.logger.info("Playback completed")
     
-    def _human_move_to(self, x: int, y: int) -> None:
-        """Move mouse with human-like curve and speed"""
-        duration = random.uniform(0.1, 0.3)
-        pyautogui.moveTo(x, y, duration=duration, tween=pyautogui.easeOutQuad)
+    def _human_move_to(self, x: int, y: int, allow_overshoot: bool = True) -> None:
+        """
+        Move mouse to (x, y) with:
+        - Distance-aware speed (Fitts' Law inspired)
+        - Random tween curve selection
+        - 10% chance of a tiny overshoot + micro-correction for distant targets
+        """
+        cx, cy = pyautogui.position()
+        dist = pixel_distance(cx, cy, x, y)
+        duration = human_move_duration(dist)
+
+        tweens = [
+            pyautogui.easeOutQuad,
+            pyautogui.easeInOutQuad,
+            pyautogui.linear,
+        ]
+        weights = [0.55, 0.35, 0.10]
+        tween = random.choices(tweens, weights=weights, k=1)[0]
+
+        if allow_overshoot and dist > 100 and random.random() < 0.10:
+            overshoot_x = x + random.randint(-10, 10)
+            overshoot_y = y + random.randint(-10, 10)
+            pyautogui.moveTo(overshoot_x, overshoot_y,
+                             duration=duration * 0.80, tween=tween)
+            time.sleep(random.uniform(0.025, 0.07))
+            pyautogui.moveTo(x, y,
+                             duration=random.uniform(0.04, 0.10),
+                             tween=pyautogui.easeOutQuad)
+        else:
+            pyautogui.moveTo(x, y, duration=duration, tween=tween)
 
     def _execute_action(self, action: Dict, recorded_bounds: Optional[Tuple] = None, action_index: int = -1) -> None:
         """Execute a single action"""
@@ -232,22 +291,17 @@ class AttackPlayer:
 
                 if self.enable_click_variation:
                     final_x, final_y = self._add_coordinate_variance(x, y, self.click_variance_pixels)
-                    
-                    # Human-like micro-movement before regular clicks
-                    if random.random() < 0.3:
-                        self._human_move_to(final_x, final_y)
-                    
-                    self.logger.debug(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})")
-                    
-                    # Randomized click down-time
-                    pyautogui.mouseDown(final_x, final_y)
-                    time.sleep(random.uniform(0.07, 0.18))
-                    pyautogui.mouseUp()
                 else:
-                    self.logger.debug(f"  CLICK {label} t={timestamp:.2f}s  recorded=({orig_x}, {orig_y})  final=({x}, {y})")
-                    pyautogui.mouseDown(x, y)
-                    time.sleep(random.uniform(0.07, 0.18))
-                    pyautogui.mouseUp()
+                    final_x, final_y = x, y
+
+                self._human_move_to(final_x, final_y)
+                self.logger.debug(
+                    f"  CLICK {label} t={timestamp:.2f}s  "
+                    f"recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})"
+                )
+                pyautogui.mouseDown(final_x, final_y)
+                time.sleep(random.uniform(0.06, 0.19))
+                pyautogui.mouseUp()
             elif action_type == 'move':
                 pass
             elif action_type == 'delay':

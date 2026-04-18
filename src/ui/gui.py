@@ -10,17 +10,20 @@ import time
 from ..bot_controller import BotController
 from ..utils.config_validator import ConfigValidator
 
-BG = "#1e1e2e"
-FRAME_BG = "#252535"
-ACCENT = "#cba6f7"
-GREEN = "#a6e3a1"
-RED = "#f38ba8"
-YELLOW = "#f9e2af"
-TEXT = "#cdd6f4"
-SUBTEXT = "#a6adc8"
-BORDER = "#313244"
-ENTRY_BG = "#313244"
-BTN_BG = "#45475a"
+BG       = "#FFFFFF"
+FRAME_BG = "#F5F7FA"
+ACCENT   = "#4F6CF7"
+GREEN    = "#16A34A"
+RED      = "#DC2626"
+YELLOW   = "#D97706"
+TEXT     = "#111827"
+SUBTEXT  = "#6B7280"
+BORDER   = "#E5E7EB"
+ENTRY_BG = "#F3F4F6"
+BTN_BG   = "#E5E7EB"
+
+FARM_COLOR   = "#0EA5E9"
+LEGEND_COLOR = "#7C3AED"
 
 
 class _QueueHandler(logging.Handler):
@@ -57,54 +60,107 @@ class BotGUI:
     def _setup_style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        style.configure(".", background=BG, foreground=TEXT, fieldbackground=ENTRY_BG, bordercolor=BORDER, troughcolor=FRAME_BG)
+        style.configure(".", background=BG, foreground=TEXT, fieldbackground=ENTRY_BG,
+                        bordercolor=BORDER, troughcolor=FRAME_BG, relief="flat")
         style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=TEXT)
-        style.configure("TButton", background=BTN_BG, foreground=TEXT, bordercolor=BORDER, focuscolor=ACCENT, padding=6)
-        style.map("TButton", background=[("active", ACCENT), ("pressed", BORDER)], foreground=[("active", BG)])
-        style.configure("Accent.TButton", background=ACCENT, foreground=BG)
-        style.map("Accent.TButton", background=[("active", TEXT), ("pressed", BORDER)])
-        style.configure("Green.TButton", background=GREEN, foreground=BG)
-        style.map("Green.TButton", background=[("active", TEXT)])
-        style.configure("Red.TButton", background=RED, foreground=BG)
-        style.map("Red.TButton", background=[("active", TEXT)])
-        style.configure("TNotebook", background=BG, bordercolor=BORDER)
-        style.configure("TNotebook.Tab", background=FRAME_BG, foreground=SUBTEXT, padding=[12, 6])
-        style.map("TNotebook.Tab", background=[("selected", BG)], foreground=[("selected", ACCENT)])
-        style.configure("TLabelframe", background=FRAME_BG, foreground=ACCENT, bordercolor=BORDER)
-        style.configure("TLabelframe.Label", background=FRAME_BG, foreground=ACCENT)
-        style.configure("TEntry", fieldbackground=ENTRY_BG, foreground=TEXT, bordercolor=BORDER, insertcolor=TEXT)
-        style.configure("TCheckbutton", background=BG, foreground=TEXT)
+        style.configure("TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 9))
+        style.configure("TButton", background=BTN_BG, foreground=TEXT, bordercolor=BORDER,
+                        focuscolor=ACCENT, padding=(8, 6), font=("Segoe UI", 9))
+        style.map("TButton",
+                  background=[("active", ACCENT), ("pressed", "#3B56D6")],
+                  foreground=[("active", "#FFFFFF")])
+        style.configure("Accent.TButton", background=ACCENT, foreground="#FFFFFF",
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Accent.TButton",
+                  background=[("active", "#3B56D6"), ("pressed", "#2D43C4")],
+                  foreground=[("active", "#FFFFFF")])
+        style.configure("Green.TButton", background=GREEN, foreground="#FFFFFF",
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Green.TButton",
+                  background=[("active", "#15803D"), ("pressed", "#166534")],
+                  foreground=[("active", "#FFFFFF")])
+        style.configure("Red.TButton", background=RED, foreground="#FFFFFF",
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Red.TButton",
+                  background=[("active", "#B91C1C"), ("pressed", "#991B1B")],
+                  foreground=[("active", "#FFFFFF")])
+        style.configure("Farm.TButton", background=FARM_COLOR, foreground="#FFFFFF",
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Farm.TButton", background=[("active", "#0284C7")])
+        style.configure("Legend.TButton", background=LEGEND_COLOR, foreground="#FFFFFF",
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Legend.TButton", background=[("active", "#6D28D9")])
+        style.configure("TNotebook", background=BG, bordercolor=BORDER, tabmargins=[0, 0, 0, 0])
+        style.configure("TNotebook.Tab", background=FRAME_BG, foreground=SUBTEXT,
+                        padding=[14, 7], font=("Segoe UI", 9))
+        style.map("TNotebook.Tab",
+                  background=[("selected", BG)],
+                  foreground=[("selected", ACCENT)],
+                  font=[("selected", ("Segoe UI", 9, "bold"))])
+        style.configure("TLabelframe", background=FRAME_BG, foreground=SUBTEXT,
+                        bordercolor=BORDER, relief="solid")
+        style.configure("TLabelframe.Label", background=FRAME_BG, foreground=SUBTEXT,
+                        font=("Segoe UI", 8, "bold"))
+        style.configure("TEntry", fieldbackground=ENTRY_BG, foreground=TEXT,
+                        bordercolor=BORDER, insertcolor=TEXT, relief="solid")
+        style.configure("TCheckbutton", background=BG, foreground=TEXT, font=("Segoe UI", 9))
         style.map("TCheckbutton", background=[("active", BG)])
-        style.configure("Card.TCheckbutton", background=FRAME_BG, foreground=TEXT)
+        style.configure("Card.TCheckbutton", background=FRAME_BG, foreground=TEXT,
+                        font=("Segoe UI", 9))
         style.map("Card.TCheckbutton", background=[("active", FRAME_BG)])
-        style.configure("Treeview", background=ENTRY_BG, foreground=TEXT, fieldbackground=ENTRY_BG, bordercolor=BORDER)
-        style.configure("Treeview.Heading", background=BTN_BG, foreground=ACCENT, bordercolor=BORDER)
-        style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", BG)])
+        style.configure("TCombobox", fieldbackground=ENTRY_BG, foreground=TEXT,
+                        background=BTN_BG, arrowcolor=SUBTEXT, bordercolor=BORDER)
+        style.configure("Treeview", background=BG, foreground=TEXT,
+                        fieldbackground=BG, bordercolor=BORDER, rowheight=26,
+                        font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", background=FRAME_BG, foreground=SUBTEXT,
+                        bordercolor=BORDER, font=("Segoe UI", 8, "bold"), relief="flat")
+        style.map("Treeview",
+                  background=[("selected", ACCENT)],
+                  foreground=[("selected", "#FFFFFF")])
         style.configure("TScale", background=FRAME_BG, troughcolor=ENTRY_BG)
-        style.configure("Horizontal.TScrollbar", background=BTN_BG, troughcolor=ENTRY_BG, bordercolor=BORDER)
-        style.configure("Vertical.TScrollbar", background=BTN_BG, troughcolor=ENTRY_BG, bordercolor=BORDER)
+        style.configure("Horizontal.TScrollbar", background=BTN_BG, troughcolor=ENTRY_BG,
+                        bordercolor=BORDER, arrowcolor=SUBTEXT)
+        style.configure("Vertical.TScrollbar", background=BTN_BG, troughcolor=ENTRY_BG,
+                        bordercolor=BORDER, arrowcolor=SUBTEXT)
+        style.configure("TSeparator", background=BORDER)
         style.configure("Card.TFrame", background=FRAME_BG, relief="flat")
-        style.configure("Card.TLabel", background=FRAME_BG, foreground=TEXT)
-        style.configure("CardTitle.TLabel", background=FRAME_BG, foreground=ACCENT, font=("Segoe UI", 10, "bold"))
-        style.configure("Stat.TLabel", background=FRAME_BG, foreground=TEXT, font=("Segoe UI", 18, "bold"))
-        style.configure("StatTitle.TLabel", background=FRAME_BG, foreground=SUBTEXT, font=("Segoe UI", 8))
-        style.configure("Header.TFrame", background=BORDER)
-        style.configure("Header.TLabel", background=BORDER, foreground=TEXT, font=("Segoe UI", 13, "bold"))
+        style.configure("Card.TLabel", background=FRAME_BG, foreground=TEXT, font=("Segoe UI", 9))
+        style.configure("CardTitle.TLabel", background=FRAME_BG, foreground=TEXT,
+                        font=("Segoe UI", 10, "bold"))
+        style.configure("Stat.TLabel", background=FRAME_BG, foreground=TEXT,
+                        font=("Segoe UI", 20, "bold"))
+        style.configure("StatTitle.TLabel", background=FRAME_BG, foreground=SUBTEXT,
+                        font=("Segoe UI", 8))
+        style.configure("Header.TFrame", background=BG)
+        style.configure("Header.TLabel", background=BG, foreground=TEXT,
+                        font=("Segoe UI", 14, "bold"))
 
     def _build_header(self):
-        header = ttk.Frame(self.root, style="Header.TFrame", height=48)
-        header.pack(fill="x", side="top")
+        wrapper = tk.Frame(self.root, bg=BG)
+        wrapper.pack(fill="x", side="top")
+
+        header = tk.Frame(wrapper, bg=BG, height=52)
+        header.pack(fill="x")
         header.pack_propagate(False)
 
-        title = ttk.Label(header, text="CoC Attack Bot", style="Header.TLabel")
-        title.pack(side="left", padx=16, pady=8)
+        tk.Label(header, text="⚔  CoC Attack Bot", bg=BG, fg=TEXT,
+                 font=("Segoe UI", 14, "bold")).pack(side="left", padx=18, pady=14)
 
-        self._status_label = tk.Label(header, text="  Stopped", bg=BORDER, fg=RED, font=("Segoe UI", 10))
-        self._status_label.pack(side="right", padx=16, pady=8)
+        right_bar = tk.Frame(header, bg=BG)
+        right_bar.pack(side="right", padx=14, pady=10)
 
-        self._status_dot = tk.Label(header, text="●", bg=BORDER, fg=RED, font=("Segoe UI", 14))
-        self._status_dot.pack(side="right", padx=4, pady=8)
+        self._status_dot = tk.Label(right_bar, text="●", bg=BG, fg=RED, font=("Segoe UI", 13))
+        self._status_dot.pack(side="right", padx=(2, 0))
+        self._status_label = tk.Label(right_bar, text="Stopped", bg=BG, fg=RED,
+                                      font=("Segoe UI", 9, "bold"))
+        self._status_label.pack(side="right", padx=(0, 6))
+
+        self._mode_pill = tk.Label(right_bar, text="  FARM  ", bg=FARM_COLOR, fg="#FFFFFF",
+                                   font=("Segoe UI", 8, "bold"), padx=8, pady=3, relief="flat")
+        self._mode_pill.pack(side="right", padx=(0, 10))
+
+        tk.Frame(wrapper, bg=BORDER, height=1).pack(fill="x")
 
     def _build_notebook(self):
         self._notebook = ttk.Notebook(self.root)
@@ -160,6 +216,7 @@ class BotGUI:
         self._stat_rate = self._stat_card(stats_row, "Success Rate", "0%")
         self._stat_runtime = self._stat_card(stats_row, "Runtime", "0h")
         self._stat_per_hour = self._stat_card(stats_row, "Attacks/Hour", "0")
+        self._stat_legend_attacks = self._stat_card(stats_row, "Legend Today", "—")
 
         content = ttk.Frame(self._tab_dashboard)
         content.pack(fill="both", expand=True, padx=8, pady=4)
@@ -167,15 +224,31 @@ class BotGUI:
         left_outer, left = self._card(content, "Controls")
         left_outer.pack(side="left", fill="both", expand=True, padx=(0, 4))
 
-        self._dash_start_btn = ttk.Button(left, text="Start Auto Attack", style="Green.TButton",
+        mode_lbl = ttk.Label(left, text="ATTACK MODE", style="Card.TLabel",
+                             foreground=SUBTEXT, font=("Segoe UI", 7, "bold"),
+                             background=FRAME_BG)
+        mode_lbl.pack(anchor="w", pady=(0, 4))
+
+        mode_row = ttk.Frame(left, style="Card.TFrame")
+        mode_row.pack(fill="x", pady=(0, 6))
+        self._dash_farm_btn = ttk.Button(mode_row, text="⚒  Farm", style="Farm.TButton",
+                                         command=self._set_mode_farm)
+        self._dash_farm_btn.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self._dash_legend_btn = ttk.Button(mode_row, text="🏆  Legend", style="Legend.TButton",
+                                           command=self._set_mode_legend)
+        self._dash_legend_btn.pack(side="left", fill="x", expand=True, padx=(3, 0))
+
+        ttk.Separator(left, style="TSeparator").pack(fill="x", pady=6)
+
+        self._dash_start_btn = ttk.Button(left, text="▶  Start Auto Attack", style="Green.TButton",
                                           command=self._dashboard_start)
         self._dash_start_btn.pack(fill="x", pady=3)
 
-        self._dash_stop_btn = ttk.Button(left, text="Stop Auto Attack", style="Red.TButton",
+        self._dash_stop_btn = ttk.Button(left, text="■  Stop Auto Attack", style="Red.TButton",
                                          command=self._dashboard_stop)
         self._dash_stop_btn.pack(fill="x", pady=3)
 
-        ttk.Separator(left).pack(fill="x", pady=8)
+        ttk.Separator(left, style="TSeparator").pack(fill="x", pady=8)
 
         ttk.Button(left, text="Take Screenshot", command=self._take_screenshot).pack(fill="x", pady=3)
         ttk.Button(left, text="Detect Game Window", command=self._detect_window).pack(fill="x", pady=3)
@@ -208,12 +281,12 @@ class BotGUI:
         log_filter.pack(side="right")
         log_filter.bind("<<ComboboxSelected>>", lambda e: self._set_log_filter(self._log_level_var.get()))
 
-        self._log_text = scrolledtext.ScrolledText(right, height=12, bg=BG, fg=TEXT,
-                                           insertbackground=TEXT, relief="flat", font=("Consolas", 9))
+        self._log_text = scrolledtext.ScrolledText(right, height=12, bg=ENTRY_BG, fg=TEXT,
+                                           insertbackground=TEXT, relief="flat",
+                                           font=("Consolas", 9), borderwidth=1)
         self._log_text.pack(fill="both", expand=True)
         self._log_text.config(state="disabled")
-        
-        # Configure log tags
+
         self._log_text.tag_config("INFO", foreground=TEXT)
         self._log_text.tag_config("WARNING", foreground=YELLOW)
         self._log_text.tag_config("ERROR", foreground=RED)
@@ -225,10 +298,24 @@ class BotGUI:
         ttk.Checkbutton(btn_row, text="Auto-scroll", style="Card.TCheckbutton", variable=self._auto_scroll).pack(side="right")
 
     def _dashboard_start(self):
-        self.controller.start_auto_attack()
+        threading.Thread(target=self.controller.start_auto_attack, daemon=True).start()
 
     def _dashboard_stop(self):
-        self.controller.stop_auto_attack()
+        def _stop():
+            self.root.after(0, lambda: self._status_label.config(text="Stopping…", fg=YELLOW))
+            self.root.after(0, lambda: self._status_dot.config(fg=YELLOW))
+            self.controller.stop_auto_attack()
+            self.root.after(0, lambda: self._status_label.config(text="Stopped", fg=RED))
+            self.root.after(0, lambda: self._status_dot.config(fg=RED))
+        threading.Thread(target=_stop, daemon=True).start()
+
+    def _set_mode_farm(self):
+        self.controller.set_attack_mode("farm")
+        self._rebuild_required_buttons()
+
+    def _set_mode_legend(self):
+        self.controller.set_attack_mode("legend")
+        self._rebuild_required_buttons()
 
     def _take_screenshot(self):
         try:
@@ -283,13 +370,64 @@ class BotGUI:
         ttk.Button(btn_row, text="Remove", command=self._auto_remove).pack(side="left", padx=2)
         ttk.Button(btn_row, text="Save", command=self._auto_save).pack(side="left", padx=2)
 
+        mode_frame = ttk.LabelFrame(right, text="Attack Mode", padding=8)
+        mode_frame.pack(fill="x", pady=(0, 6))
+
+        auto_mode_row = ttk.Frame(mode_frame)
+        auto_mode_row.pack(fill="x")
+        self._auto_farm_btn = ttk.Button(auto_mode_row, text="⚒  Farm (Battle)",
+                                         style="Farm.TButton", command=self._set_mode_farm)
+        self._auto_farm_btn.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self._auto_legend_btn = ttk.Button(auto_mode_row, text="🏆  Legend League",
+                                           style="Legend.TButton", command=self._set_mode_legend)
+        self._auto_legend_btn.pack(side="left", fill="x", expand=True, padx=(3, 0))
+
+        self._auto_mode_desc = ttk.Label(mode_frame, text="", foreground=SUBTEXT,
+                                         font=("Segoe UI", 8), wraplength=260)
+        self._auto_mode_desc.pack(anchor="w", pady=(6, 0))
+
+        legend_frame = ttk.LabelFrame(right, text="Legend League Settings", padding=8)
+        legend_frame.pack(fill="x", pady=(0, 6))
+
+        ll_grid = ttk.Frame(legend_frame)
+        ll_grid.pack(fill="x")
+        ll_grid.columnconfigure(1, weight=1)
+
+        ttk.Label(ll_grid, text="Daily Attacks:").grid(row=0, column=0, sticky="w", pady=2)
+        self._ll_daily_var = tk.StringVar(
+            value=str(self.controller.config.get("legend_league.daily_attack_limit", 8)))
+        ttk.Entry(ll_grid, textvariable=self._ll_daily_var, width=6).grid(row=0, column=1, sticky="w", padx=6)
+
+        ttk.Label(ll_grid, text="Window Start (UTC):").grid(row=1, column=0, sticky="w", pady=2)
+        self._ll_start_var = tk.StringVar(
+            value=str(self.controller.config.get("legend_league.window_start_utc", "00:00")))
+        ttk.Entry(ll_grid, textvariable=self._ll_start_var, width=8).grid(row=1, column=1, sticky="w", padx=6)
+
+        ttk.Label(ll_grid, text="Window End (UTC):").grid(row=2, column=0, sticky="w", pady=2)
+        self._ll_end_var = tk.StringVar(
+            value=str(self.controller.config.get("legend_league.window_end_utc", "23:59")))
+        ttk.Entry(ll_grid, textvariable=self._ll_end_var, width=8).grid(row=2, column=1, sticky="w", padx=6)
+
+        self._ll_wait_var = tk.BooleanVar(
+            value=bool(self.controller.config.get("legend_league.wait_for_window", True)))
+        ttk.Checkbutton(legend_frame, text="Wait for window to open",
+                        variable=self._ll_wait_var).pack(anchor="w", pady=(4, 0))
+
+        self._ll_ai_var = tk.BooleanVar(
+            value=bool(self.controller.config.get("legend_league.ai_strategy_enabled", False)))
+        ttk.Checkbutton(legend_frame, text="AI strategy analysis (experimental)",
+                        variable=self._ll_ai_var).pack(anchor="w")
+
+        ttk.Button(legend_frame, text="Save Legend Settings", style="Accent.TButton",
+                   command=self._save_legend_settings).pack(anchor="w", pady=(6, 0))
+
         ctrl_frame = ttk.LabelFrame(right, text="Control", padding=8)
         ctrl_frame.pack(fill="x")
 
-        self._auto_start_btn = ttk.Button(ctrl_frame, text="Start Auto Attack", style="Green.TButton",
+        self._auto_start_btn = ttk.Button(ctrl_frame, text="▶  Start Auto Attack", style="Green.TButton",
                                           command=self._dashboard_start)
         self._auto_start_btn.pack(fill="x", pady=3)
-        self._auto_stop_btn = ttk.Button(ctrl_frame, text="Stop Auto Attack", style="Red.TButton",
+        self._auto_stop_btn = ttk.Button(ctrl_frame, text="■  Stop Auto Attack", style="Red.TButton",
                                          command=self._dashboard_stop)
         self._auto_stop_btn.pack(fill="x", pady=3)
         ttk.Button(ctrl_frame, text="Validate Config", command=self._auto_validate).pack(fill="x", pady=3)
@@ -297,7 +435,7 @@ class BotGUI:
         val_frame = ttk.LabelFrame(right, text="Validation Results", padding=8)
         val_frame.pack(fill="both", expand=True, pady=(8, 0))
 
-        self._auto_validate_text = tk.Text(val_frame, bg=BG, fg=TEXT, insertbackground=TEXT,
+        self._auto_validate_text = tk.Text(val_frame, bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
                                            relief="flat", font=("Consolas", 9))
         val_vsb = ttk.Scrollbar(val_frame, orient="vertical", command=self._auto_validate_text.yview)
         self._auto_validate_text.configure(yscrollcommand=val_vsb.set)
@@ -382,6 +520,21 @@ class BotGUI:
         except Exception as e:
             messagebox.showerror("Error", str(e), parent=self.root)
 
+    def _save_legend_settings(self):
+        try:
+            self.controller.config.set("legend_league.daily_attack_limit",
+                                       int(self._ll_daily_var.get()))
+            self.controller.config.set("legend_league.window_start_utc",
+                                       self._ll_start_var.get().strip())
+            self.controller.config.set("legend_league.window_end_utc",
+                                       self._ll_end_var.get().strip())
+            self.controller.config.set("legend_league.wait_for_window", self._ll_wait_var.get())
+            self.controller.config.set("legend_league.ai_strategy_enabled", self._ll_ai_var.get())
+            self.controller.config.save_config()
+            messagebox.showinfo("Saved", "Legend League settings saved.", parent=self.root)
+        except (ValueError, TypeError) as e:
+            messagebox.showerror("Invalid", f"Could not save: {e}", parent=self.root)
+
     def _auto_validate(self):
         ok, errors = self.controller.validate_auto_attack_config()
         self._auto_validate_text.config(state="normal")
@@ -405,9 +558,9 @@ class BotGUI:
         list_frame.pack(fill="both", expand=True)
 
         list_sb = ttk.Scrollbar(list_frame, orient="vertical")
-        self._rec_listbox = tk.Listbox(list_frame, bg=ENTRY_BG, fg=TEXT, selectbackground=ACCENT,
-                                       selectforeground=BG, relief="flat", font=("Segoe UI", 10),
-                                       yscrollcommand=list_sb.set)
+        self._rec_listbox = tk.Listbox(list_frame, bg=BG, fg=TEXT, selectbackground=ACCENT,
+                                       selectforeground="#FFFFFF", relief="flat", font=("Segoe UI", 10),
+                                       borderwidth=0, yscrollcommand=list_sb.set)
         list_sb.config(command=self._rec_listbox.yview)
         self._rec_listbox.pack(side="left", fill="both", expand=True)
         list_sb.pack(side="right", fill="y")
@@ -465,8 +618,8 @@ class BotGUI:
         info_card, info_inner = self._card(right, "Recording Info")
         info_card.pack(fill="both", expand=True)
 
-        self._rec_info_text = tk.Text(info_inner, bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
-                                      relief="flat", font=("Consolas", 9), height=6)
+        self._rec_info_text = tk.Text(info_inner, bg=BG, fg=TEXT, insertbackground=TEXT,
+                                      relief="flat", font=("Consolas", 9), height=6, borderwidth=0)
         self._rec_info_text.pack(fill="both", expand=True)
         self._rec_info_text.config(state="disabled")
 
@@ -589,18 +742,11 @@ class BotGUI:
         ttk.Button(coord_btns, text="Delete", command=self._coord_delete).pack(side="left", padx=2)
         ttk.Button(coord_btns, text="Save", command=self._coord_save).pack(side="left", padx=2)
 
-        req_frame = ttk.LabelFrame(right, text="Required Buttons Status", padding=8)
-        req_frame.pack(fill="x", pady=(0, 6))
+        self._req_frame = ttk.LabelFrame(right, text="Required Buttons Status", padding=8)
+        self._req_frame.pack(fill="x", pady=(0, 6))
 
         self._req_labels = {}
-        for btn_key, desc in ConfigValidator.REQUIRED_BUTTONS.items():
-            row = ttk.Frame(req_frame, style="Card.TFrame")
-            row.pack(fill="x", pady=1)
-            dot = tk.Label(row, text="●", bg=FRAME_BG, fg=RED, font=("Segoe UI", 10))
-            dot.pack(side="left", padx=(0, 4))
-            ttk.Label(row, text=f"{btn_key}: {desc}", style="Card.TLabel",
-                      font=("Segoe UI", 8)).pack(side="left")
-            self._req_labels[btn_key] = dot
+        self._req_label_frames = {}
 
         wizard_frame = ttk.LabelFrame(right, text="Mapping Wizard", padding=8)
         wizard_frame.pack(fill="x", pady=(0, 6))
@@ -612,14 +758,15 @@ class BotGUI:
         val_frame.pack(fill="both", expand=True)
 
         ttk.Button(val_frame, text="Validate Coordinates", command=self._coord_validate).pack(fill="x", pady=(0, 4))
-        self._coord_val_text = tk.Text(val_frame, bg=ENTRY_BG, fg=TEXT, insertbackground=TEXT,
-                                       relief="flat", font=("Consolas", 9))
+        self._coord_val_text = tk.Text(val_frame, bg=BG, fg=TEXT, insertbackground=TEXT,
+                                       relief="flat", font=("Consolas", 9), borderwidth=0)
         val_vsb = ttk.Scrollbar(val_frame, orient="vertical", command=self._coord_val_text.yview)
         self._coord_val_text.configure(yscrollcommand=val_vsb.set)
         self._coord_val_text.pack(side="left", fill="both", expand=True)
         val_vsb.pack(side="right", fill="y")
         self._coord_val_text.config(state="disabled")
 
+        self._rebuild_required_buttons()
         self._coord_refresh()
 
     def _coord_refresh(self):
@@ -642,6 +789,31 @@ class BotGUI:
                 dot.config(fg=GREEN)
             else:
                 dot.config(fg=RED)
+
+    def _rebuild_required_buttons(self):
+        for row in self._req_label_frames.values():
+            row.destroy()
+        self._req_labels.clear()
+        self._req_label_frames.clear()
+
+        mode = self.controller.get_attack_mode()
+        if mode == 'legend':
+            buttons = self.controller.get_required_buttons_legend()
+        else:
+            buttons = self.controller.get_required_buttons()
+
+        for btn_key, desc in buttons.items():
+            row = ttk.Frame(self._req_frame, style="Card.TFrame")
+            row.pack(fill="x", pady=1)
+            dot = tk.Label(row, text="●", bg=FRAME_BG, fg=RED, font=("Segoe UI", 10))
+            dot.pack(side="left", padx=(0, 4))
+            ttk.Label(row, text=f"{btn_key}: {desc}", style="Card.TLabel",
+                      font=("Segoe UI", 8)).pack(side="left")
+            self._req_labels[btn_key] = dot
+            self._req_label_frames[btn_key] = row
+
+        coords = self.controller.get_mapped_coordinates()
+        self._coord_update_required_status(coords)
 
     def _coord_add_edit(self):
         sel = self._coord_tree.selection()
@@ -752,12 +924,22 @@ class BotGUI:
         threading.Thread(target=self.controller.start_coordinate_mapping, daemon=True).start()
 
     def _coord_validate(self):
-        results = self.controller.coordinate_mapper.validate_coordinates()
+        mode = self.controller.get_attack_mode()
+        if mode == 'legend':
+            required = self.controller.get_required_buttons_legend()
+        else:
+            required = self.controller.get_required_buttons()
+        
+        coords = self.controller.get_mapped_coordinates()
         self._coord_val_text.config(state="normal")
         self._coord_val_text.delete("1.0", "end")
-        for name, ok in results.items():
-            marker = "✓" if ok else "✗"
-            self._coord_val_text.insert("end", f"{marker} {name}\n")
+        
+        self._coord_val_text.insert("end", f"Mode: {mode.upper()}\n\n")
+        
+        for btn_key in required.keys():
+            marker = "✓" if btn_key in coords else "✗"
+            self._coord_val_text.insert("end", f"{marker} {btn_key}\n")
+        
         self._coord_val_text.config(state="disabled")
 
     def _build_scrollable_tab(self, parent):
@@ -779,7 +961,9 @@ class BotGUI:
         canvas.bind("<Configure>", on_canvas_resize)
 
         def on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            if event.state & 0x4:
+                if event.delta < 0:
+                    canvas.yview_scroll(1, "units")
 
         canvas.bind_all("<MouseWheel>", on_mousewheel)
         return inner
@@ -936,6 +1120,23 @@ class BotGUI:
             ])
         sections.append(("Search & Attack", attacker_fields))
 
+        # Legend League Section
+        legend_fields = [
+            ("Daily Attack Limit", "legend_league.daily_attack_limit", "int"),
+            ("Window Start UTC", "legend_league.window_start_utc", "str"),
+            ("Window End UTC", "legend_league.window_end_utc", "str"),
+            ("Wait for Window", "legend_league.wait_for_window", "bool"),
+            ("Between Attacks Min (s)", "legend_league.between_attack_delay_min", "float"),
+            ("Between Attacks Max (s)", "legend_league.between_attack_delay_max", "float"),
+        ]
+        if adv:
+            legend_fields.extend([
+                ("AI Strategy", "legend_league.ai_strategy_enabled", "bool"),
+                ("Pre-Window Buffer (min)", "legend_league.pre_window_buffer_minutes", "int"),
+                ("Skip If Window Closed", "legend_league.skip_if_window_closed", "bool"),
+            ])
+        sections.append(("Legend League", legend_fields))
+
         # Display Section
         display_fields = [
             ("Sound Notifications", "display.sound_notifications", "bool"),
@@ -1020,17 +1221,30 @@ class BotGUI:
     def _periodic_update(self):
         try:
             running = self.controller.is_auto_attacking()
+
             if running:
                 self._status_dot.config(fg=GREEN)
-                self._status_label.config(text="  Running", fg=GREEN)
+                self._status_label.config(text="Running", fg=GREEN)
             else:
-                self._status_dot.config(fg=RED)
-                self._status_label.config(text="  Stopped", fg=RED)
+                current_text = self._status_label.cget("text")
+                if current_text not in ("Stopping…", "Stopped"):
+                    self._status_label.config(text="Stopped", fg=RED)
+                    self._status_dot.config(fg=RED)
 
             for btn in (self._dash_start_btn, self._auto_start_btn):
                 btn.configure(state="disabled" if running else "normal")
             for btn in (self._dash_stop_btn, self._auto_stop_btn):
                 btn.configure(state="normal" if running else "disabled")
+
+            mode = self.controller.get_attack_mode()
+            if mode == "legend":
+                self._mode_pill.config(text="  LEGEND  ", bg=LEGEND_COLOR)
+                desc = "Legend League: attacks assigned opponents (8/day), no loot filter"
+            else:
+                self._mode_pill.config(text="  FARM  ", bg=FARM_COLOR)
+                desc = "Farm: searches for bases meeting loot thresholds, skips others"
+            if hasattr(self, "_auto_mode_desc"):
+                self._auto_mode_desc.config(text=desc)
 
             stats = self.controller.get_auto_attack_stats()
             self._stat_total.config(text=str(stats.get("total_attacks", 0)))
@@ -1042,6 +1256,13 @@ class BotGUI:
             self._stat_runtime.config(text=f"{hours:.2f}h")
             aph = stats.get("attacks_per_hour", 0)
             self._stat_per_hour.config(text=f"{aph:.1f}")
+
+            if mode == "legend":
+                used = self.controller.auto_attacker._legend_attacks_today
+                limit = int(self.controller.config.get("legend_league.daily_attack_limit", 8))
+                self._stat_legend_attacks.config(text=f"{used}/{limit}")
+            else:
+                self._stat_legend_attacks.config(text="—")
 
             self._drain_log_queue()
         except Exception:

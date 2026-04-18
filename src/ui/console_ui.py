@@ -122,14 +122,17 @@ class ConsoleUI:
             print("\n" + "=" * 40)
             print("      AUTOMATION SYSTEM")
             print("=" * 40)
+
+            current_mode = self.bot.get_attack_mode()
+            mode_label = "FARM (Battle)" if current_mode == 'farm' else "LEGEND LEAGUE (Ranked Battle)"
             
             if self.bot.is_auto_attacking():
-                print("Status: RUNNING")
+                print(f"Status: RUNNING  [{mode_label}]")
                 stats = self.bot.get_auto_attack_stats()
                 print(f"Sessions: {stats['total_attacks']} (Success: {stats['success_rate']:.1f}%)")
                 print(f"Runtime: {stats['runtime_hours']:.1f} hours")
             else:
-                print("Status: STOPPED")
+                print(f"Status: STOPPED  [{mode_label}]")
             
             print("=" * 40)
             print("1. Setup Automation")
@@ -139,7 +142,8 @@ class ConsoleUI:
             print("5. Stop Automation")
             print("6. View Statistics")
             print("7. Configure Required Buttons")
-            print("8. Back to main menu")
+            print("8. Switch Attack Mode (Farm / Legend League)")
+            print("9. Back to main menu")
             print("=" * 40)
             
             choice = input("Enter your choice: ").strip()
@@ -159,6 +163,8 @@ class ConsoleUI:
             elif choice == '7':
                 self.configure_auto_attack_buttons()
             elif choice == '8':
+                self.switch_attack_mode()
+            elif choice == '9':
                 self.clear_screen()
                 break
             else:
@@ -433,7 +439,55 @@ class ConsoleUI:
             print("4. Press F3 to save when done")
         else:
             print("\n✅ All required buttons are mapped! Ready for automation.")
+
+        current_mode = self.bot.get_attack_mode()
+        if current_mode == 'legend':
+            print("\n--- LEGEND LEAGUE additional buttons ---")
+            legend_buttons = self.bot.get_required_buttons_legend()
+            mapped_coords = self.bot.get_mapped_coordinates()
+            for button_name, description in legend_buttons.items():
+                status = "✓ MAPPED" if button_name in mapped_coords else "✗ MISSING"
+                print(f"  {button_name:30} | {status:10} | {description}")
         
+        input("\nPress Enter to continue...")
+
+    def switch_attack_mode(self) -> None:
+        """Interactive mode switcher between farm and legend league"""
+        current_mode = self.bot.get_attack_mode()
+        print("\n" + "=" * 50)
+        print("       SWITCH ATTACK MODE")
+        print("=" * 50)
+        print(f"Current mode: {'FARM (Battle)' if current_mode == 'farm' else 'LEGEND LEAGUE (Ranked Battle)'}")
+        print()
+        print("1. FARM (Battle) - regular farming for loot")
+        print("   - Searches for bases with good gold/elixir/dark")
+        print("   - Skips low-loot bases automatically")
+        print("   - Runs continuously until stopped")
+        print()
+        print("2. LEGEND LEAGUE (Ranked Battle) - Legend trophy pushing")
+        print("   - Attacks assigned opponents (no loot filter)")
+        print("   - Limited to 8 attacks per day")
+        print("   - Respects the attack window (UTC time)")
+        print("   - Optional AI base difficulty analysis")
+        print()
+        print("3. Cancel")
+        print("=" * 50)
+        choice = input("Enter your choice: ").strip()
+        if choice == '1':
+            if self.bot.set_attack_mode('farm'):
+                print("✅ Switched to FARM mode.")
+                print("   Make sure these buttons are mapped: attack, find_a_match, attack_button_2, next_button, return_home")
+            else:
+                print("❌ Failed to switch mode.")
+        elif choice == '2':
+            if self.bot.set_attack_mode('legend'):
+                print("✅ Switched to LEGEND LEAGUE mode.")
+                print("   Make sure these buttons are mapped: ranked_battle_button, legend_attack_button, legend_return_home")
+                print("   Optional: legend_opponent_select (to click the first opponent in the list)")
+            else:
+                print("❌ Failed to switch mode.")
+        else:
+            print("Cancelled.")
         input("\nPress Enter to continue...")
     
     def edit_auto_attack_groups(self) -> None:
