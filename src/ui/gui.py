@@ -9,6 +9,7 @@ import time
 
 from ..bot_controller import BotController
 from ..utils.config_validator import ConfigValidator
+from ..utils.attack_strategy import AttackStrategyConfig, DeploySpeedSettings, StrategySettings, HeroAbilitySettings, HumanLikeVariations, EndBattleSettings
 
 BG       = "#FFFFFF"
 FRAME_BG = "#F5F7FA"
@@ -168,23 +169,29 @@ class BotGUI:
 
         self._tab_dashboard = ttk.Frame(self._notebook)
         self._tab_auto = ttk.Frame(self._notebook)
+        self._tab_strategy = ttk.Frame(self._notebook)
         self._tab_recorder = ttk.Frame(self._notebook)
         self._tab_coords = ttk.Frame(self._notebook)
         self._tab_ai = ttk.Frame(self._notebook)
+        self._tab_donation = ttk.Frame(self._notebook)
         self._tab_config = ttk.Frame(self._notebook)
 
         self._notebook.add(self._tab_dashboard, text="Dashboard")
         self._notebook.add(self._tab_auto, text="Auto Attacker")
+        self._notebook.add(self._tab_strategy, text="Attack Strategy")
         self._notebook.add(self._tab_recorder, text="Recorder")
         self._notebook.add(self._tab_coords, text="Coordinates")
         self._notebook.add(self._tab_ai, text="AI Analyzer")
+        self._notebook.add(self._tab_donation, text="💚 Donations")
         self._notebook.add(self._tab_config, text="Config")
 
         self._build_dashboard_tab()
         self._build_auto_attacker_tab()
+        self._build_strategy_tab()
         self._build_recorder_tab()
         self._build_coords_tab()
         self._build_ai_tab()
+        self._build_donation_tab()
         self._build_config_tab()
 
     def _card(self, parent, title=None, padx=6, pady=6, **kw):
@@ -545,6 +552,251 @@ class BotGUI:
             for err in errors:
                 self._auto_validate_text.insert("end", f"✗ {err}\n")
         self._auto_validate_text.config(state="disabled")
+
+    def _build_strategy_tab(self):
+        canvas_frame = ttk.Frame(self._tab_strategy)
+        canvas_frame.pack(fill="both", expand=True, padx=8, pady=8)
+        
+        canvas = tk.Canvas(canvas_frame, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        outer, deploy_frame = self._card(scrollable_frame, "⚡ Deploy Speed Settings", padx=4, pady=4)
+        outer.pack(fill="x")
+        
+        deploy_grid = ttk.Frame(deploy_frame)
+        deploy_grid.pack(fill="x")
+        deploy_grid.columnconfigure(1, weight=1)
+        
+        ttk.Label(deploy_grid, text="Wave Deployment Speed (1-Fast, 9-Slow):", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=4)
+        self._strategy_wave_speed = tk.IntVar(value=self.controller.config.get("attack_strategy.deploy_speed.wave_deployment_speed", 8))
+        wave_scale = ttk.Scale(deploy_grid, from_=1, to=9, variable=self._strategy_wave_speed, orient="horizontal")
+        wave_scale.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=4)
+        self._strategy_wave_label = ttk.Label(deploy_grid, text="8", font=("Segoe UI", 9, "bold"), foreground=ACCENT, width=2)
+        self._strategy_wave_label.grid(row=0, column=2, padx=8)
+        wave_scale.configure(command=lambda v: self._strategy_wave_label.config(text=str(int(float(v)))))
+        
+        ttk.Label(deploy_grid, text="Troop Deployment Speed (1-Fast, 9-Slow):", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", pady=4)
+        self._strategy_troop_speed = tk.IntVar(value=self.controller.config.get("attack_strategy.deploy_speed.troop_deployment_speed", 7))
+        troop_scale = ttk.Scale(deploy_grid, from_=1, to=9, variable=self._strategy_troop_speed, orient="horizontal")
+        troop_scale.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=4)
+        self._strategy_troop_label = ttk.Label(deploy_grid, text="7", font=("Segoe UI", 9, "bold"), foreground=ACCENT, width=2)
+        self._strategy_troop_label.grid(row=1, column=2, padx=8)
+        troop_scale.configure(command=lambda v: self._strategy_troop_label.config(text=str(int(float(v)))))
+        
+        outer, strategy_frame = self._card(scrollable_frame, "🎯 Attack Strategy Settings", padx=4, pady=4)
+        outer.pack(fill="x")
+        
+        outer, sides_frame = self._card(strategy_frame, "Attack Sides", padx=0, pady=4)
+        outer.pack(fill="x")
+        
+        sides_grid = ttk.Frame(sides_frame)
+        sides_grid.pack(fill="x")
+        
+        attack_sides = self.controller.config.get("attack_strategy.strategy.attack_sides", {"NW": True, "NE": True, "SW": True, "SE": True})
+        
+        self._strategy_nw = tk.BooleanVar(value=attack_sides.get("NW", True))
+        self._strategy_ne = tk.BooleanVar(value=attack_sides.get("NE", True))
+        self._strategy_sw = tk.BooleanVar(value=attack_sides.get("SW", True))
+        self._strategy_se = tk.BooleanVar(value=attack_sides.get("SE", True))
+        
+        ttk.Checkbutton(sides_grid, text="🔼 North-West", variable=self._strategy_nw).pack(anchor="w", pady=2)
+        ttk.Checkbutton(sides_grid, text="🔼 North-East", variable=self._strategy_ne).pack(anchor="w", pady=2)
+        ttk.Checkbutton(sides_grid, text="🔽 South-West", variable=self._strategy_sw).pack(anchor="w", pady=2)
+        ttk.Checkbutton(sides_grid, text="🔽 South-East", variable=self._strategy_se).pack(anchor="w", pady=2)
+        
+        ttk.Separator(strategy_frame, style="TSeparator").pack(fill="x", pady=6)
+        
+        split_grid = ttk.Frame(strategy_frame)
+        split_grid.pack(fill="x", pady=4)
+        split_grid.columnconfigure(1, weight=1)
+        
+        ttk.Label(split_grid, text="Split Attack into Waves (1-3):", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=4)
+        self._strategy_waves = tk.IntVar(value=self.controller.config.get("attack_strategy.strategy.split_waves", 1))
+        waves_scale = ttk.Scale(split_grid, from_=1, to=3, variable=self._strategy_waves, orient="horizontal")
+        waves_scale.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=4)
+        self._strategy_waves_label = ttk.Label(split_grid, text="1", font=("Segoe UI", 9, "bold"), foreground=ACCENT, width=2)
+        self._strategy_waves_label.grid(row=0, column=2, padx=8)
+        waves_scale.configure(command=lambda v: self._strategy_waves_label.config(text=str(int(float(v)))))
+        
+        ttk.Separator(strategy_frame, style="TSeparator").pack(fill="x", pady=6)
+        
+        self._strategy_red_lines = tk.BooleanVar(value=self.controller.config.get("attack_strategy.strategy.deploy_near_red_lines", True))
+        ttk.Checkbutton(strategy_frame, text="✓ Deploy near red lines (defenses)", variable=self._strategy_red_lines).pack(anchor="w", pady=2)
+        
+        self._strategy_collectors = tk.BooleanVar(value=self.controller.config.get("attack_strategy.strategy.deploy_near_collectors", True))
+        ttk.Checkbutton(strategy_frame, text="✓ Deploy near collectors", variable=self._strategy_collectors).pack(anchor="w", pady=2)
+        
+        outer, hero_frame = self._card(scrollable_frame, "⚔ Hero Ability Settings", padx=4, pady=4)
+        outer.pack(fill="x")
+        
+        hero_grid = ttk.Frame(hero_frame)
+        hero_grid.pack(fill="x")
+        hero_grid.columnconfigure(1, weight=1)
+        
+        self._hero_enabled = tk.BooleanVar(value=self.controller.config.get("attack_strategy.hero_ability.enabled", True))
+        ttk.Checkbutton(hero_frame, text="✓ Activate hero abilities", variable=self._hero_enabled).pack(anchor="w", pady=4)
+        
+        ttk.Label(hero_grid, text="Activate after (seconds):", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=4)
+        self._hero_delay = tk.IntVar(value=self.controller.config.get("attack_strategy.hero_ability.activate_after_seconds", 10))
+        hero_scale = ttk.Scale(hero_grid, from_=5, to=60, variable=self._hero_delay, orient="horizontal")
+        hero_scale.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=4)
+        self._hero_delay_label = ttk.Label(hero_grid, text="10s", font=("Segoe UI", 9, "bold"), foreground=ACCENT, width=4)
+        self._hero_delay_label.grid(row=0, column=2, padx=8)
+        hero_scale.configure(command=lambda v: self._hero_delay_label.config(text=f"{int(float(v))}s"))
+        
+        outer, end_battle_frame = self._card(scrollable_frame, "⏹ End Battle Settings", padx=4, pady=4)
+        outer.pack(fill="x")
+        
+        end_grid = ttk.Frame(end_battle_frame)
+        end_grid.pack(fill="x")
+        end_grid.columnconfigure(1, weight=1)
+        
+        self._end_battle_enabled = tk.BooleanVar(value=self.controller.config.get("attack_strategy.end_battle.enabled", True))
+        ttk.Checkbutton(end_battle_frame, text="✓ Auto-end battle if no resources", variable=self._end_battle_enabled).pack(anchor="w", pady=4)
+        
+        ttk.Label(end_grid, text="No resources timeout (seconds):", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=4)
+        self._end_battle_timeout = tk.IntVar(value=self.controller.config.get("attack_strategy.end_battle.end_if_no_resources_for_seconds", 10))
+        end_scale = ttk.Scale(end_grid, from_=5, to=30, variable=self._end_battle_timeout, orient="horizontal")
+        end_scale.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=4)
+        self._end_battle_label = ttk.Label(end_grid, text="10s", font=("Segoe UI", 9, "bold"), foreground=ACCENT, width=4)
+        self._end_battle_label.grid(row=0, column=2, padx=8)
+        end_scale.configure(command=lambda v: self._end_battle_label.config(text=f"{int(float(v))}s"))
+        
+        outer, human_frame = self._card(scrollable_frame, "🔒 Human-Like Behavior (⚠️ SECURITY)", padx=4, pady=4)
+        outer.pack(fill="x")
+        
+        ttk.Label(human_frame, text="⚠️  Disabling these features increases detection risk!", font=("Segoe UI", 8), foreground=RED).pack(anchor="w", pady=4)
+        
+        ttk.Separator(human_frame, style="TSeparator").pack(fill="x", pady=4)
+        
+        self._human_mouse_parking = tk.BooleanVar(value=self.controller.config.get("attack_strategy.human_like_variations.enable_mouse_parking", True))
+        ttk.Checkbutton(human_frame, text="✓ Park mouse between actions", variable=self._human_mouse_parking).pack(anchor="w", pady=2)
+        
+        self._human_hesitation = tk.BooleanVar(value=self.controller.config.get("attack_strategy.human_like_variations.enable_hesitation", True))
+        ttk.Checkbutton(human_frame, text="✓ Add human-like hesitations", variable=self._human_hesitation).pack(anchor="w", pady=2)
+        
+        hesitation_grid = ttk.Frame(human_frame)
+        hesitation_grid.pack(fill="x", pady=(4, 0))
+        hesitation_grid.columnconfigure(1, weight=1)
+        
+        ttk.Label(hesitation_grid, text="Min hesitation (ms):", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="w", padx=(20, 0), pady=2)
+        self._human_min_hes = tk.IntVar(value=self.controller.config.get("attack_strategy.human_like_variations.min_hesitation_ms", 200))
+        ttk.Entry(hesitation_grid, textvariable=self._human_min_hes, width=6).grid(row=0, column=1, sticky="w", padx=8, pady=2)
+        
+        ttk.Label(hesitation_grid, text="Max hesitation (ms):", font=("Segoe UI", 8)).grid(row=1, column=0, sticky="w", padx=(20, 0), pady=2)
+        self._human_max_hes = tk.IntVar(value=self.controller.config.get("attack_strategy.human_like_variations.max_hesitation_ms", 800))
+        ttk.Entry(hesitation_grid, textvariable=self._human_max_hes, width=6).grid(row=1, column=1, sticky="w", padx=8, pady=2)
+        
+        ttk.Separator(human_frame, style="TSeparator").pack(fill="x", pady=4)
+        
+        variance_grid = ttk.Frame(human_frame)
+        variance_grid.pack(fill="x")
+        variance_grid.columnconfigure(1, weight=1)
+        
+        ttk.Label(variance_grid, text="Click variance (pixels):", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="w", pady=2)
+        self._human_variance = tk.IntVar(value=self.controller.config.get("attack_strategy.human_like_variations.coordinate_variance_pixels", 5))
+        variance_scale = ttk.Scale(variance_grid, from_=0, to=15, variable=self._human_variance, orient="horizontal")
+        variance_scale.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=2)
+        self._human_variance_label = ttk.Label(variance_grid, text="5", font=("Segoe UI", 8, "bold"), foreground=ACCENT, width=2)
+        self._human_variance_label.grid(row=0, column=2, padx=8)
+        variance_scale.configure(command=lambda v: self._human_variance_label.config(text=str(int(float(v)))))
+        
+        ttk.Label(variance_grid, text="Click jitter (pixels):", font=("Segoe UI", 8)).grid(row=1, column=0, sticky="w", pady=2)
+        self._human_jitter = tk.IntVar(value=self.controller.config.get("attack_strategy.human_like_variations.click_jitter_pixels", 3))
+        jitter_scale = ttk.Scale(variance_grid, from_=0, to=10, variable=self._human_jitter, orient="horizontal")
+        jitter_scale.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=2)
+        self._human_jitter_label = ttk.Label(variance_grid, text="3", font=("Segoe UI", 8, "bold"), foreground=ACCENT, width=2)
+        self._human_jitter_label.grid(row=1, column=2, padx=8)
+        jitter_scale.configure(command=lambda v: self._human_jitter_label.config(text=str(int(float(v)))))
+        
+        button_frame = ttk.Frame(scrollable_frame)
+        button_frame.pack(fill="x", pady=(8, 0))
+        
+        ttk.Button(button_frame, text="💾 Save Strategy Settings", style="Green.TButton", command=self._save_strategy_settings).pack(side="left", padx=4, fill="x", expand=True)
+        ttk.Button(button_frame, text="🔄 Reset to Defaults", style="Accent.TButton", command=self._reset_strategy_defaults).pack(side="left", padx=4)
+
+    def _save_strategy_settings(self):
+        try:
+            strategy_config = {
+                'deploy_speed': {
+                    'wave_deployment_speed': self._strategy_wave_speed.get(),
+                    'troop_deployment_speed': self._strategy_troop_speed.get()
+                },
+                'strategy': {
+                    'attack_sides': {
+                        'NW': self._strategy_nw.get(),
+                        'NE': self._strategy_ne.get(),
+                        'SW': self._strategy_sw.get(),
+                        'SE': self._strategy_se.get()
+                    },
+                    'split_waves': self._strategy_waves.get(),
+                    'deploy_near_red_lines': self._strategy_red_lines.get(),
+                    'deploy_near_collectors': self._strategy_collectors.get()
+                },
+                'hero_ability': {
+                    'enabled': self._hero_enabled.get(),
+                    'activate_after_seconds': self._hero_delay.get()
+                },
+                'end_battle': {
+                    'enabled': self._end_battle_enabled.get(),
+                    'end_if_no_resources_for_seconds': self._end_battle_timeout.get()
+                },
+                'human_like_variations': {
+                    'enable_mouse_parking': self._human_mouse_parking.get(),
+                    'enable_hesitation': self._human_hesitation.get(),
+                    'min_hesitation_ms': self._human_min_hes.get(),
+                    'max_hesitation_ms': self._human_max_hes.get(),
+                    'coordinate_variance_pixels': self._human_variance.get(),
+                    'click_jitter_pixels': self._human_jitter.get()
+                }
+            }
+            
+            self.controller.config.set("attack_strategy", strategy_config)
+            self.controller.config.save_config()
+            messagebox.showinfo("✓ Saved", "Attack strategy settings saved successfully.", parent=self.root)
+        except (ValueError, TypeError) as e:
+            messagebox.showerror("✗ Error", f"Could not save settings: {e}", parent=self.root)
+    
+    def _reset_strategy_defaults(self):
+        if messagebox.askyesno("Reset Defaults", "Reset all strategy settings to defaults?", parent=self.root):
+            defaults = AttackStrategyConfig.default()
+            
+            self._strategy_wave_speed.set(defaults.deploy_speed.wave_deployment_speed)
+            self._strategy_troop_speed.set(defaults.deploy_speed.troop_deployment_speed)
+            
+            self._strategy_nw.set(defaults.strategy.attack_sides['NW'])
+            self._strategy_ne.set(defaults.strategy.attack_sides['NE'])
+            self._strategy_sw.set(defaults.strategy.attack_sides['SW'])
+            self._strategy_se.set(defaults.strategy.attack_sides['SE'])
+            
+            self._strategy_waves.set(defaults.strategy.split_waves)
+            self._strategy_red_lines.set(defaults.strategy.deploy_near_red_lines)
+            self._strategy_collectors.set(defaults.strategy.deploy_near_collectors)
+            
+            self._hero_enabled.set(defaults.hero_ability.enabled)
+            self._hero_delay.set(defaults.hero_ability.activate_after_seconds)
+            
+            self._end_battle_enabled.set(defaults.end_battle.enabled)
+            self._end_battle_timeout.set(defaults.end_battle.end_if_no_resources_for_seconds)
+            
+            self._human_mouse_parking.set(defaults.human_like_variations.enable_mouse_parking)
+            self._human_hesitation.set(defaults.human_like_variations.enable_hesitation)
+            self._human_min_hes.set(defaults.human_like_variations.min_hesitation_ms)
+            self._human_max_hes.set(defaults.human_like_variations.max_hesitation_ms)
+            self._human_variance.set(defaults.human_like_variations.coordinate_variance_pixels)
+            self._human_jitter.set(defaults.human_like_variations.click_jitter_pixels)
 
     def _build_recorder_tab(self):
         left = ttk.Frame(self._tab_recorder)
@@ -1048,6 +1300,339 @@ class BotGUI:
             return
         self.controller.config.save_config()
         messagebox.showinfo("Saved", "AI settings saved.", parent=self.root)
+
+    def _build_donation_tab(self):
+        content = ttk.Frame(self._tab_donation)
+        content.pack(fill="both", expand=True, padx=8, pady=8)
+        
+        controls_outer, controls = self._card(content, "Donation Controls")
+        controls_outer.pack(fill="x", padx=(0, 4), pady=(0, 4))
+        
+        self._donation_is_running = False
+        self._donation_thread = None
+        
+        run_frame = ttk.Frame(controls, style="Card.TFrame")
+        run_frame.pack(fill="x", pady=(0, 6))
+        
+        self._donation_run_btn = ttk.Button(run_frame, text="▶ Run Donation Bot", style="Green.TButton", command=self._donation_start_bot)
+        self._donation_run_btn.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        
+        self._donation_stop_btn = ttk.Button(run_frame, text="■ Stop", style="Red.TButton", command=self._donation_stop_bot)
+        self._donation_stop_btn.pack(side="left", fill="x", expand=True, padx=(3, 0))
+        self._donation_stop_btn.config(state="disabled")
+        
+        interval_frame = ttk.Frame(controls, style="Card.TFrame")
+        interval_frame.pack(fill="x", pady=(0, 6))
+        ttk.Label(interval_frame, text="Check Interval (sec):", style="Card.TLabel", background=FRAME_BG).pack(side="left")
+        self._donation_interval_var = tk.StringVar(value="30")
+        interval_spin = ttk.Spinbox(interval_frame, from_=5, to=300, textvariable=self._donation_interval_var, width=10)
+        interval_spin.pack(side="left", padx=(4, 0))
+        
+
+        
+        status_outer, status = self._card(content, "Donation Status")
+        status_outer.pack(fill="both", expand=True, padx=(4, 0))
+        
+        status_grid = ttk.Frame(status, style="Card.TFrame")
+        status_grid.pack(fill="x", pady=(0, 8))
+        
+        ttk.Label(status_grid, text="Game Window:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=0, column=0, sticky="w")
+        self._donation_window_status = ttk.Label(status_grid, text="Not detected", style="Card.TLabel", foreground=RED, background=FRAME_BG)
+        self._donation_window_status.grid(row=0, column=1, sticky="w", padx=(8, 0))
+        
+        ttk.Label(status_grid, text="In Clan Chat:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self._donation_clan_chat_status = ttk.Label(status_grid, text="Unknown", style="Card.TLabel", foreground=SUBTEXT, background=FRAME_BG)
+        self._donation_clan_chat_status.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        
+        ttk.Label(status_grid, text="Available Troops:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self._donation_troops_status = ttk.Label(status_grid, text="—", style="Card.TLabel", foreground=SUBTEXT, background=FRAME_BG)
+        self._donation_troops_status.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        
+        ttk.Label(status_grid, text="Available Spells:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=3, column=0, sticky="w", pady=(4, 0))
+        self._donation_spells_status = ttk.Label(status_grid, text="—", style="Card.TLabel", foreground=SUBTEXT, background=FRAME_BG)
+        self._donation_spells_status.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        
+        ttk.Label(status_grid, text="Donation Requests:", style="Card.TLabel", font=("Segoe UI", 9, "bold"), background=FRAME_BG).grid(row=4, column=0, sticky="w", pady=(4, 0))
+        self._donation_requests_status = ttk.Label(status_grid, text="—", style="Card.TLabel", foreground=SUBTEXT, background=FRAME_BG)
+        self._donation_requests_status.grid(row=4, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        
+        ttk.Separator(status).pack(fill="x", pady=8)
+        
+        ttk.Label(status, text="Detection Details", style="CardTitle.TLabel", background=FRAME_BG).pack(anchor="w")
+        
+        self._donation_details = scrolledtext.ScrolledText(status, height=10, bg=ENTRY_BG, fg=TEXT,
+                                           insertbackground=TEXT, relief="flat",
+                                           font=("Consolas", 8), borderwidth=1)
+        self._donation_details.pack(fill="both", expand=True, pady=(4, 0))
+        self._donation_details.config(state="disabled")
+    
+    def _donation_log(self, msg: str, tag: str = "INFO"):
+        self._donation_details.config(state="normal")
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        self._donation_details.insert("end", f"[{ts}] {msg}\n", tag)
+        self._donation_details.see("end")
+        self._donation_details.config(state="disabled")
+    
+    def _donation_detect_window(self):
+        bounds = self.controller.get_game_window()
+        if bounds:
+            x, y, w, h = bounds
+            self._donation_window_status.config(text=f"Detected at ({x}, {y}) - {w}x{h}", foreground=GREEN)
+            self._donation_log(f"Game window detected: ({x}, {y}) {w}x{h}", "INFO")
+        else:
+            self._donation_window_status.config(text="Not found", foreground=RED)
+            self._donation_log("Game window not found", "ERROR")
+    
+    def _donation_check_clan_chat(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        is_clan = self.controller.donation_detector.is_in_clan_chat(bounds)
+        status_text = "Yes ✓" if is_clan else "No ✗"
+        status_color = GREEN if is_clan else RED
+        self._donation_clan_chat_status.config(text=status_text, foreground=status_color)
+        self._donation_log(f"Clan chat check: {'In clan chat' if is_clan else 'Not in clan chat'}", "INFO")
+    
+    def _donation_scan_troops(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        troops = self.controller.donation_detector.get_available_troops(bounds)
+        count = len(troops)
+        self._donation_troops_status.config(text=f"{count} found", foreground=GREEN if count > 0 else RED)
+        self._donation_log(f"Found {count} available troops to donate", "INFO")
+        if troops:
+            for i, (x, y) in enumerate(troops, 1):
+                self._donation_log(f"  {i}. Troop at ({x}, {y})", "INFO")
+    
+    def _donation_scan_spells(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        spells = self.controller.donation_detector.get_available_spells(bounds)
+        count = len(spells)
+        self._donation_spells_status.config(text=f"{count} found", foreground=GREEN if count > 0 else RED)
+        self._donation_log(f"Found {count} available spells to donate", "INFO")
+        if spells:
+            for i, (x, y) in enumerate(spells, 1):
+                self._donation_log(f"  {i}. Spell at ({x}, {y})", "INFO")
+    
+    def _donation_detect_requests(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        requests = self.controller.donation_detector.detect_donation_requests(bounds)
+        count = len(requests)
+        self._donation_requests_status.config(text=f"{count} requests", foreground=GREEN if count > 0 else RED)
+        self._donation_log(f"Found {count} donation requests", "INFO")
+        if requests:
+            for i, req in enumerate(requests, 1):
+                name = req.get('member_name', 'Unknown')
+                pos = req.get('position', (0, 0))
+                self._donation_log(f"  {i}. {name} at {pos}", "INFO")
+    
+    def _donation_find_clan_button(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        chat_btn = self.controller.donation_detector.find_clan_chat_button(bounds)
+        if chat_btn:
+            self._donation_log(f"Clan chat button found at {chat_btn}", "INFO")
+        else:
+            self._donation_log("Clan chat button not found", "ERROR")
+    
+    def _donation_find_close_button(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        close_btn = self.controller.donation_detector.find_close_button(bounds)
+        if close_btn:
+            self._donation_log(f"Close button found at {close_btn}", "INFO")
+        else:
+            self._donation_log("Close button not found", "ERROR")
+    
+    def _donation_debug_screenshot(self):
+        bounds = self.controller.get_game_window()
+        if not bounds:
+            self._donation_log("Game window not detected. Detect it first.", "ERROR")
+            return
+        
+        self._donation_log("Creating debug screenshot with detection boxes...", "INFO")
+        output_path = self.controller.donation_detector.create_debug_screenshot(bounds, "donation_debug.png")
+        if output_path:
+            self._donation_log(f"Debug screenshot saved: {output_path}", "INFO")
+            self._donation_log(f"Legend: 🟢 Green=Troops(T), 🟡 Yellow=Spells(S), 🟠 Orange=Donate Button(D)", "INFO")
+        else:
+            self._donation_log("Failed to create debug screenshot", "ERROR")
+    
+    def _donation_start_bot(self):
+        if self._donation_is_running:
+            return
+        
+        self._donation_is_running = True
+        self._donation_run_btn.config(state="disabled")
+        self._donation_stop_btn.config(state="normal")
+        self._donation_log("=== Donation Bot Started ===", "INFO")
+        
+        self._donation_thread = threading.Thread(target=self._donation_bot_loop, daemon=True)
+        self._donation_thread.start()
+    
+    def _donation_stop_bot(self):
+        self._donation_is_running = False
+        self._donation_run_btn.config(state="normal")
+        self._donation_stop_btn.config(state="disabled")
+        self._donation_log("Donation Bot Stopped", "INFO")
+    
+    def _donation_bot_loop(self):
+        try:
+            import pyautogui
+            iteration = 0
+            while self._donation_is_running:
+                iteration += 1
+                
+                self._donation_log(f"\n{'='*60}", "DEBUG")
+                self._donation_log(f"[CYCLE {iteration}] Starting donation check...", "INFO")
+                self._donation_log(f"{'='*60}", "DEBUG")
+                
+                self._donation_log(f"[STEP 1] Detecting game window...", "DEBUG")
+                bounds = self.controller.get_game_window()
+                if not bounds:
+                    self._donation_log(f"  ✗ Game window not found", "ERROR")
+                    interval = int(self._donation_interval_var.get())
+                    self._donation_log(f"  Retrying in {interval}s...", "INFO")
+                    time.sleep(interval)
+                    continue
+                
+                x, y, w, h = bounds
+                self._donation_log(f"  ✓ Game window detected at ({x}, {y}) - {w}x{h}", "INFO")
+                
+                self._donation_log(f"[STEP 2] Checking if in clan chat...", "DEBUG")
+                is_clan = self.controller.donation_detector.is_in_clan_chat(bounds)
+                if not is_clan:
+                    self._donation_log(f"  ✗ Not in clan chat screen, attempting to open...", "INFO")
+                    chat_btn = self.controller.donation_detector.find_clan_chat_button(bounds)
+                    if chat_btn:
+                        self._donation_log(f"  → Found clan chat button at {chat_btn}, clicking...", "DEBUG")
+                        pyautogui.click(chat_btn[0], chat_btn[1])
+                        time.sleep(1)
+                        is_clan = self.controller.donation_detector.is_in_clan_chat(bounds)
+                        if not is_clan:
+                            self._donation_log(f"  ✗ Still not in clan chat after click", "WARNING")
+                            interval = int(self._donation_interval_var.get())
+                            self._donation_log(f"  Waiting {interval}s before next check...", "INFO")
+                            time.sleep(interval)
+                            continue
+                    else:
+                        self._donation_log(f"  ✗ Clan chat button not found", "ERROR")
+                        interval = int(self._donation_interval_var.get())
+                        self._donation_log(f"  Waiting {interval}s before next check...", "INFO")
+                        time.sleep(interval)
+                        continue
+                
+                self._donation_log(f"  ✓ In clan chat screen", "INFO")
+                
+                self._donation_log(f"[STEP 3] Looking for DONATE button in clan chat...", "DEBUG")
+                gx, gy, gw, gh = bounds
+                chat_region = (gx, gy, int(gw * 0.46), gh)
+                donate_btn = self.controller.donation_detector.find_donate_button_template(chat_region)
+                
+                if not donate_btn:
+                    self._donation_log(f"  ✗ No donate button found in chat - no pending requests", "INFO")
+                    self._donation_troops_status.config(text="waiting", foreground=RED)
+                    self._donation_spells_status.config(text="waiting", foreground=RED)
+                    self._donation_requests_status.config(text="0 requests", foreground=RED)
+                    interval = int(self._donation_interval_var.get())
+                    self._donation_log(f"[WAITING] Next check in {interval}s...", "INFO")
+                    time.sleep(interval)
+                    continue
+                
+                self._donation_log(f"  ✓ Found DONATE button at {donate_btn}", "INFO")
+                self._donation_requests_status.config(text="1+ requests", foreground=GREEN)
+                
+                self._donation_log(f"[STEP 4] Clicking DONATE button to open troop selection...", "DEBUG")
+                pyautogui.click(donate_btn[0], donate_btn[1])
+                time.sleep(1.5)
+                
+                self._donation_log(f"[STEP 5] Scanning for available (colored) troops...", "DEBUG")
+                popup_region = (
+                    int(gx + gw * 0.40),
+                    int(gy + gh * 0.18),
+                    int(gw * 0.57),
+                    int(gh * 0.42),
+                )
+                self._donation_log(f"  Popup scan region: {popup_region}", "DEBUG")
+                matched = self.controller.donation_detector.find_troops_by_templates(popup_region)
+                
+                if matched:
+                    self._donation_log(f"  ✓ Found {len(matched)} available troops via template matching", "INFO")
+                    for idx, (tx, ty) in enumerate(matched, 1):
+                        self._donation_log(f"    {idx}. Troop at ({tx}, {ty})", "DEBUG")
+                else:
+                    self._donation_log(f"  ✗ No matching troops found (all greyed out or no templates)", "INFO")
+                
+                self._donation_troops_status.config(text=f"{len(matched)} found", foreground=GREEN if matched else RED)
+                self._donation_spells_status.config(text="template", foreground=GREEN)
+                
+                if matched:
+                    self._donation_log(f"[STEP 6] Clicking matched troops...", "DEBUG")
+                    
+                    for idx, (px, py) in enumerate(matched, 1):
+                        pyautogui.click(px, py)
+                        self._donation_log(f"  ✓ Clicked troop {idx}/{len(matched)} at ({px}, {py})", "INFO")
+                        time.sleep(0.3)
+                    
+                    self._donation_log(f"[STEP 7] Finding CONFIRM DONATE button...", "DEBUG")
+                    confirm_btn = self.controller.donation_detector.find_confirm_donate_button(popup_region)
+                    
+                    if confirm_btn:
+                        self._donation_log(f"  ✓ Found confirm button at {confirm_btn}, clicking...", "INFO")
+                        pyautogui.click(confirm_btn[0], confirm_btn[1])
+                        time.sleep(1.5)
+                        
+                        self._donation_log(f"[STEP 8] Verifying donation succeeded...", "DEBUG")
+                        if self.controller.donation_detector.verify_donation_completed(bounds):
+                            self._donation_log(f"[COMPLETE] Successfully donated {len(matched)} troops ✓", "INFO")
+                        else:
+                            self._donation_log(f"[WARNING] Donation button still visible - may not have succeeded", "WARNING")
+                    else:
+                        self._donation_log(f"  ✗ Confirm donate button not found!", "ERROR")
+                        self._donation_log(f"    → Donation was NOT sent (button not clicked)", "ERROR")
+                else:
+                    self._donation_log(f"[STEP 6] No troops available to donate", "WARNING")
+                
+                self._donation_log(f"[STEP 9] Closing clan chat...", "DEBUG")
+                close_btn = self.controller.donation_detector.find_close_button(bounds)
+                if close_btn:
+                    self._donation_log(f"  → Found close button at {close_btn}, clicking...", "DEBUG")
+                    pyautogui.click(close_btn[0], close_btn[1])
+                    time.sleep(0.5)
+                    self._donation_log(f"  ✓ Closed clan chat", "INFO")
+                else:
+                    self._donation_log(f"  ✗ Close button not found, skipping...", "WARNING")
+                
+                interval = int(self._donation_interval_var.get())
+                self._donation_log(f"[WAITING] Next check in {interval}s...", "INFO")
+                time.sleep(interval)
+        
+        except Exception as e:
+            self._donation_log(f"[ERROR] Bot crashed: {e}", "ERROR")
+            import traceback
+            self._donation_log(f"  Traceback: {traceback.format_exc()}", "DEBUG")
+            self._donation_is_running = False
+            self._donation_run_btn.config(state="normal")
+            self._donation_stop_btn.config(state="disabled")
 
     def _build_config_tab(self):
         inner = self._build_scrollable_tab(self._tab_config)

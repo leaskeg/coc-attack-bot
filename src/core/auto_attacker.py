@@ -12,6 +12,7 @@ from .coordinate_mapper import CoordinateMapper
 from .ai_analyzer import AIAnalyzer
 from ..utils.logger import Logger
 from ..utils.config import Config
+from ..utils.attack_strategy import AttackStrategyConfig
 from ..utils.timing import (add_random_delay, add_coordinate_variance,
                             add_human_like_hesitation, get_varied_delay_range,
                             human_move_duration, pixel_distance)
@@ -19,13 +20,15 @@ from ..utils.timing import (add_random_delay, add_coordinate_variance,
 class AutoAttacker:
     
     def __init__(self, attack_player: AttackPlayer, screen_capture: ScreenCapture, 
-                 coordinate_mapper: CoordinateMapper, logger: Logger, ai_analyzer: AIAnalyzer, config: Config):
+                 coordinate_mapper: CoordinateMapper, logger: Logger, ai_analyzer: AIAnalyzer, config: Config,
+                 deployment_detector=None):
         self.attack_player = attack_player
         self.screen_capture = screen_capture
         self.coordinate_mapper = coordinate_mapper
         self.logger = logger
         self.ai_analyzer = ai_analyzer
         self.config = config
+        self.deployment_detector = deployment_detector
         
         self.is_running = False
         self.auto_thread = None
@@ -43,9 +46,23 @@ class AutoAttacker:
 
         self._legend_attacks_today = 0
         self._legend_day_reset = None
+        
+        self.strategy_config = self._load_strategy_config()
 
         self.logger.info("Auto Attacker initialized")
         self.logger.info("Emergency stop: Ctrl+Alt+S")
+    
+    def _load_strategy_config(self) -> AttackStrategyConfig:
+        """Load attack strategy configuration from config, with defaults fallback"""
+        raw_config = self.config.get('attack_strategy', {})
+        if raw_config:
+            return AttackStrategyConfig.from_dict(raw_config)
+        return AttackStrategyConfig.default()
+    
+    def get_strategy_config(self) -> AttackStrategyConfig:
+        """Get current attack strategy configuration"""
+        self.strategy_config = self._load_strategy_config()
+        return self.strategy_config
     
     def _verify_click_position(self, x: int, y: int) -> Tuple[int, int]:
         """Verify click position is within screen bounds"""
@@ -161,34 +178,62 @@ class AutoAttacker:
         
         self.logger.info("Auto attacker stopped")
     
-    def _click_at(self, x: int, y: int, jitter_pixels: int = 5) -> None:
-        """Perform a human-like click: natural arc to target, then press+release"""
-        adjusted_x, adjusted_y = add_coordinate_variance(x, y, jitter_pixels)
+    def _click_at(self, x: int, y: int, jitter_pixels: Optional[int] = None) -> None:
+        """Perform a human-like click with strategy-based variations"""
+        if jitter_pixels is None:
+            jitter_pixels = self.strategy_config.human_like_variations.click_jitter_pixels
+        
+        variance_pixels = self.strategy_config.human_like_variations.coordinate_variance_pixels
+        adjusted_x, adjusted_y = add_coordinate_variance(x, y, variance_pixels)
         adjusted_x, adjusted_y = self._verify_click_position(adjusted_x, adjusted_y)
+        
         self._natural_move_to(adjusted_x, adjusted_y)
+        
+        if self.strategy_config.human_like_variations.enable_hesitation:
+            hesitation = random.uniform(
+                self.strategy_config.human_like_variations.min_hesitation_ms / 1000.0,
+                self.strategy_config.human_like_variations.max_hesitation_ms / 1000.0
+            )
+            time.sleep(hesitation)
+        
         pyautogui.mouseDown(adjusted_x, adjusted_y)
         time.sleep(random.uniform(0.07, 0.20))
         pyautogui.mouseUp()
+        
+        if self.strategy_config.human_like_variations.enable_mouse_parking and random.random() < 0.3:
+            time.sleep(random.uniform(0.2, 0.5))
+            self._park_mouse_briefly()
+
+    def _park_mouse_briefly(self) -> None:
+        """Brief mouse parking (quick version for between clicks)"""
+        if not self.strategy_config.human_like_variations.enable_mouse_parking:
+            return
+        
+        screen_w, screen_h = pyautogui.size()
+        park_x = random.choice([50, screen_w - 50])
+        park_y = random.choice([50, screen_h - 50])
+        
+        move_duration = random.uniform(0.2, 0.5)
+        pyautogui.moveTo(park_x, park_y, duration=move_duration, tween=pyautogui.easeInOutQuad)
 
     def _park_mouse(self) -> None:
         """Move mouse to a 'neutral' zone (edges or off-window) to simulate human waiting"""
+        if not self.strategy_config.human_like_variations.enable_mouse_parking:
+            return
+        
         screen_w, screen_h = pyautogui.size()
         
-        # Choose a random edge or corner
         destinations = [
-            (screen_w - 50, screen_h // 2),  # Right edge
-            (50, screen_h // 2),            # Left edge
-            (screen_w // 2, 50),            # Top edge
-            (screen_w - 50, screen_h - 50)   # Bottom right corner
+            (screen_w - 50, screen_h // 2),
+            (50, screen_h // 2),
+            (screen_w // 2, 50),
+            (screen_w - 50, screen_h - 50)
         ]
         
         dest_x, dest_y = random.choice(destinations)
-        
-        # Move with a slow, relaxed speed
         move_duration = random.uniform(0.4, 1.2)
         pyautogui.moveTo(dest_x, dest_y, duration=move_duration, tween=pyautogui.easeInOutQuad)
         
-        # Occasional micro-movement while parked
         if random.random() < 0.4:
             time.sleep(random.uniform(0.5, 2.0))
             pyautogui.moveRel(random.randint(-10, 10), random.randint(-10, 10), duration=0.3)
@@ -206,6 +251,86 @@ class AutoAttacker:
         self.config.set('attack_mode', mode)
         self.logger.info(f"Attack mode set to: {mode.upper()}")
         return True
+    
+    def get_deploy_speed_factor(self, speed_type: str) -> float:
+        """Convert deploy speed (1-9) to actual delay factor. 1=Fast, 9=Slow"""
+        if speed_type == 'wave':
+            speed = self.strategy_config.deploy_speed.wave_deployment_speed
+        elif speed_type == 'troop':
+            speed = self.strategy_config.deploy_speed.troop_deployment_speed
+        else:
+            return 1.0
+        
+        speed = max(1, min(9, speed))
+        base_delay = 0.5
+        return base_delay + ((speed - 1) * 0.15)
+    
+    def get_attack_sides(self) -> List[str]:
+        """Get list of enabled attack sides"""
+        sides = []
+        sides_config = self.strategy_config.strategy.attack_sides
+        for direction in ['NW', 'NE', 'SW', 'SE']:
+            if sides_config.get(direction, True):
+                sides.append(direction)
+        return sides if sides else ['NW', 'NE', 'SW', 'SE']
+    
+    def get_split_waves(self) -> int:
+        """Get number of waves to split attack into"""
+        waves = self.strategy_config.strategy.split_waves
+        return max(1, min(3, waves))
+    
+    def should_deploy_near_collectors(self) -> bool:
+        """Check if we should deploy troops near collectors"""
+        return self.strategy_config.strategy.deploy_near_collectors
+    
+    def should_deploy_near_defenses(self) -> bool:
+        """Check if we should deploy troops near red lines (defenses)"""
+        return self.strategy_config.strategy.deploy_near_red_lines
+    
+    def get_hero_activation_delay(self) -> Optional[float]:
+        """Get hero activation delay in seconds, or None if disabled"""
+        if self.strategy_config.hero_ability.enabled:
+            return float(self.strategy_config.hero_ability.activate_after_seconds)
+        return None
+    
+    def get_end_battle_timeout(self) -> Optional[float]:
+        """Get timeout for ending battle, or None if disabled"""
+        if self.strategy_config.end_battle.enabled:
+            return float(self.strategy_config.end_battle.end_if_no_resources_for_seconds)
+        return None
+    
+    def find_deployment_zones(self, game_region: Tuple[int, int, int, int]) -> List[Tuple[int, int]]:
+        """Find deployment zones based on strategy settings"""
+        if not self.deployment_detector:
+            self.logger.warning("Deployment detector not initialized - using fallback zones")
+            return []
+        
+        zones = []
+        
+        if self.should_deploy_near_defenses():
+            self.logger.info("🔍 Detecting deployment zones near defenses (red lines)...")
+            defense_zones = self.deployment_detector.get_deployment_zones_near_defenses(game_region)
+            zones.extend(defense_zones)
+        
+        if self.should_deploy_near_collectors():
+            self.logger.info("🔍 Detecting deployment zones near collectors...")
+            collector_zones = self.deployment_detector.get_deployment_zones_near_collectors(game_region)
+            zones.extend(collector_zones)
+        
+        if not zones:
+            self.logger.warning("No deployment zones detected - using fallback positions")
+            zones = self.deployment_detector._get_fallback_deployment_zones(game_region)
+        
+        self.logger.info(f"✓ Found {len(zones)} deployment zones")
+        return zones
+    
+    def select_deployment_point(self, zones: List[Tuple[int, int]], 
+                               previous_deployments: Optional[List[Tuple[int, int]]] = None) -> Optional[Tuple[int, int]]:
+        """Select best deployment point avoiding previous positions"""
+        if not self.deployment_detector or not zones:
+            return None
+        
+        return self.deployment_detector.get_best_deployment_point(zones, previous_deployments)
 
     def _legend_reset_daily_counter_if_needed(self) -> None:
         """Reset the daily attack counter when a new UTC day starts"""

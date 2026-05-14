@@ -9,6 +9,7 @@ from src.ui.console_ui import ConsoleUI
 from src.ui.gui import BotGUI
 from src.utils.logger import Logger
 from src.utils.stats_display import StatsDisplay
+from src.core.system_validator import SystemValidator
 
 
 def run_headless_auto_attack(controller: BotController, group_name: str = None, show_live_stats: bool = True):
@@ -96,6 +97,7 @@ Examples:
   python main.py --auto-attack      # Run auto-attack with all configured groups
   python main.py --auto-attack -g group1  # Run specific attack group
   python main.py --config config.json     # Use custom config file
+  python main.py --validate         # Validate all systems before running
         """
     )
     
@@ -121,6 +123,11 @@ Examples:
         default='src/utils/config.py',
         help='Path to config file (default: src/utils/config.py)'
     )
+    parser.add_argument(
+        '--validate',
+        action='store_true',
+        help='Validate all systems and exit'
+    )
     
     args = parser.parse_args()
     
@@ -128,7 +135,16 @@ Examples:
         logger = Logger()
         logger.info("Starting application...")
         
+        if args.validate:
+            logger.info("Running system validation...")
+            validator = SystemValidator(logger=logger)
+            validator.print_validation_report()
+            return
+        
         controller = BotController()
+        
+        controller.emergency_stop.start_monitoring()
+        logger.info("Emergency stop handler activated (Ctrl+Alt+S)")
         
         if args.auto_attack:
             run_headless_auto_attack(controller, args.group)
@@ -138,7 +154,7 @@ Examples:
         else:
             gui = BotGUI(controller)
             gui.run()
-        
+    
     except KeyboardInterrupt:
         print("\n[INFO] Application stopped by user")
         sys.exit(0)
@@ -147,6 +163,12 @@ Examples:
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        try:
+            if 'controller' in locals():
+                controller.emergency_stop.stop_monitoring()
+        except:
+            pass
 
 
 if __name__ == "__main__":

@@ -7,22 +7,28 @@ from typing import Optional, Tuple, List
 from datetime import datetime, timedelta
 import win32gui
 import win32con
+from ..utils.logger import Logger
 
 class ScreenCapture:
     
-    def __init__(self):
+    def __init__(self, logger: Optional[Logger] = None):
         self.screenshot_dir = "screenshots"
         self.game_window_title = "Game"
         self.game_window_bounds = None
         self.template_cache = {}
+        self.logger = logger or Logger()
         
         os.makedirs(self.screenshot_dir, exist_ok=True)
         
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
+        
+        self.logger.debug("[SCREEN] ScreenCapture initialized")
     
     def find_game_window(self) -> Optional[Tuple[int, int, int, int]]:
         """Find the COC game window and return its bounds (x, y, width, height)"""
+        self.logger.debug("[WINDOW] Searching for game window...")
+        
         def enum_windows_callback(hwnd, windows):
             if win32gui.IsWindowVisible(hwnd):
                 window_title = win32gui.GetWindowText(hwnd)
@@ -39,9 +45,10 @@ class ScreenCapture:
             width = right - x
             height = bottom - y
             self.game_window_bounds = (x, y, width, height)
+            self.logger.info(f"[WINDOW] Game window found: '{title}' at ({x}, {y}) - {width}x{height}")
             return self.game_window_bounds
         
-        print("Could not find COC game window. Make sure the game is running.")
+        self.logger.error("[WINDOW] Could not find COC game window. Make sure the game is running.")
         return None
     
     def capture_screen(self, region: Optional[Tuple[int, int, int, int]] = None) -> str:
@@ -54,17 +61,20 @@ class ScreenCapture:
         filepath = os.path.join(self.screenshot_dir, filename)
         
         if region:
-            # Capture specific region
+            x, y, w, h = region
+            self.logger.debug(f"[SCREEN] Capturing region: ({x}, {y}) - {w}x{h}")
             screenshot = pyautogui.screenshot(region=region)
         else:
-            # Capture full screen or game window if detected
             if self.game_window_bounds:
+                x, y, w, h = self.game_window_bounds
+                self.logger.debug(f"[SCREEN] Capturing game window: ({x}, {y}) - {w}x{h}")
                 screenshot = pyautogui.screenshot(region=self.game_window_bounds)
             else:
+                self.logger.debug("[SCREEN] Capturing full screen")
                 screenshot = pyautogui.screenshot()
         
         screenshot.save(filepath)
-        print(f"Screenshot saved: {filepath}")
+        self.logger.info(f"[SCREEN] Screenshot saved: {filepath}")
         return filepath
     
     def capture_game_screen(self) -> Optional[str]:

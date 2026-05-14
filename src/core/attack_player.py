@@ -12,6 +12,9 @@ from PIL import Image
 from typing import Dict, List, Optional, Tuple
 from .attack_recorder import AttackRecorder
 from .screen_capture import ScreenCapture
+from .window_manager import WindowManager
+from .safe_click_executor import SafeClickExecutor
+from .emergency_stop import get_emergency_stop_handler
 from ..utils.config import Config
 from ..utils.logger import Logger
 from ..utils.screen_utils import is_coordinate_on_screen, get_virtual_screen_size
@@ -77,10 +80,13 @@ class AttackPlayer:
         
         return (adjusted_x, adjusted_y)
     
-    def __init__(self, logger: Optional[Logger] = None):
+    def __init__(self, logger: Optional[Logger] = None, window_manager: Optional[WindowManager] = None):
         self.logger = logger or Logger()
         self.attack_recorder = AttackRecorder(logger=self.logger)
         self.screen_capture = ScreenCapture()
+        self.window_manager = window_manager or WindowManager(logger=self.logger)
+        self.safe_click_executor = SafeClickExecutor(self.window_manager, logger=self.logger)
+        self.emergency_stop = get_emergency_stop_handler(logger=self.logger)
         self.config = Config()
         self.is_playing = False
         self.current_playback = None
@@ -89,7 +95,7 @@ class AttackPlayer:
         self.enable_click_variation = self.config.get("automation.enable_click_variation", True)
         self.click_variance_pixels = self.config.get("automation.click_variance_pixels", 5)
         
-        self.logger.info("Player initialized")
+        self.logger.info("Player initialized with SafeClickExecutor")
         self.logger.info(f"Variation: {'enabled' if self.enable_click_variation else 'disabled'} (±{self.click_variance_pixels} pixels)")
         print("Controls:")
         print("  F8 - Pause/Resume")
@@ -169,9 +175,13 @@ class AttackPlayer:
             for i, action in enumerate(actions):
                 if not self.is_playing:
                     break
+                
+                if self.emergency_stop.is_stopped():
+                    self.logger.warning("Emergency stop activated (Ctrl+Alt+S)")
+                    break
 
                 if keyboard.is_pressed('esc'):
-                    self.logger.warning("Emergency stop activated")
+                    self.logger.warning("Emergency stop activated (ESC)")
                     break
 
                 if keyboard.is_pressed('f9'):
@@ -299,9 +309,7 @@ class AttackPlayer:
                     f"  CLICK {label} t={timestamp:.2f}s  "
                     f"recorded=({orig_x}, {orig_y})  adjusted=({x}, {y})  final=({final_x}, {final_y})"
                 )
-                pyautogui.mouseDown(final_x, final_y)
-                time.sleep(random.uniform(0.06, 0.19))
-                pyautogui.mouseUp()
+                self.safe_click_executor.safe_click(final_x, final_y, button='left')
             elif action_type == 'move':
                 pass
             elif action_type == 'delay':
